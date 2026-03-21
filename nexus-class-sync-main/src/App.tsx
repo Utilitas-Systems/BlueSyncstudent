@@ -1,5 +1,5 @@
 import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
+import { Toaster as Sonner, toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
@@ -81,32 +81,52 @@ const App = () => {
     if (!isTauri) return;
 
     let cancelled = false;
+    let busy = false;
 
-    const checkForUpdate = async () => {
+    /** Auto-download and install when a newer signed release is published (no prompt). */
+    const checkAndApplyUpdate = async () => {
+      if (busy || cancelled) return;
       try {
         const update = await invoke<UpdaterMetadata | null>('plugin:updater|check');
         if (!update || cancelled) return;
 
-        const shouldInstall = window.confirm(
-          `A new version (${update.version}) is available. Download and install it now?`
-        );
-        if (!shouldInstall || cancelled) return;
+        busy = true;
+        const loadingId = toast.loading(`Updating BlueSync to v${update.version}…`);
 
         await invoke('plugin:updater|download_and_install', {
           rid: update.rid,
           onEvent: new Channel(),
         });
+
         if (cancelled) return;
-        window.alert("Update installed. Please restart BlueSync to use the new version.");
+        toast.dismiss(loadingId);
+        toast.success(`Update installed (v${update.version}). Restart the app to finish.`, {
+          duration: 12_000,
+        });
       } catch (error) {
-        console.error("Auto-update check failed:", error);
+        console.error("Auto-update failed:", error);
+        toast.error("Update failed. You can install the latest build from GitHub Releases.", {
+          duration: 8_000,
+        });
+      } finally {
+        busy = false;
       }
     };
 
-    void checkForUpdate();
+    const startupMs = 4_000;
+    const startupTimer = window.setTimeout(() => {
+      void checkAndApplyUpdate();
+    }, startupMs);
+
+    const intervalMs = 6 * 60 * 60 * 1000;
+    const interval = window.setInterval(() => {
+      void checkAndApplyUpdate();
+    }, intervalMs);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(startupTimer);
+      window.clearInterval(interval);
     };
   }, []);
 
