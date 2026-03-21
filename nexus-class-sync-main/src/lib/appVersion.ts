@@ -3,8 +3,12 @@
  */
 export const APP_DISPLAY_NAME = "BlueSync Student";
 
+/** Shown only when an update was found but download/install failed. */
+export const UPDATE_FAILED_WEBSITE_MESSAGE =
+  "Update failed. You can install the latest build from the BlueSync website.";
+
 /**
  * Login footer label (marketing style).
  * `tauri.conf.json` → `version` must stay strict SemVer (no leading zeros in numeric parts, e.g. 1.0.4 not 1.00.04) or `tauri build` / updater tooling can fail.
  */
-export const APP_VERSION = "1.00.05";
+export const APP_VERSION = "1.00.06";

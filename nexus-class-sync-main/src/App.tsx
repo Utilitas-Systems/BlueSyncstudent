@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -15,13 +15,9 @@ import Settings from "./pages/Settings";
 import ClassDetails from "./pages/ClassDetails";
 import NotFound from "./pages/NotFound";
 import { AudioProvider } from "@/contexts/AudioContext";
-import { APP_DISPLAY_NAME } from "@/lib/appVersion";
+import { APP_DISPLAY_NAME, UPDATE_FAILED_WEBSITE_MESSAGE } from "@/lib/appVersion";
 
 const queryClient = new QueryClient();
-type UpdaterMetadata = {
-  rid: number;
-  version: string;
-};
 
 const App = () => {
   const [studentId, setStudentId] = useState<string | null>(null);
@@ -94,29 +90,38 @@ const App = () => {
     /** Auto-download and install when a newer signed release is published (no prompt). */
     const checkAndApplyUpdate = async () => {
       if (busy || cancelled) return;
+
+      let pendingUpdate: Update | null = null;
       try {
-        const update = await invoke<UpdaterMetadata | null>('plugin:updater|check');
-        if (!update || cancelled) return;
+        pendingUpdate = await check();
+      } catch {
+        // No latest.json, unsigned CI builds, offline, etc. — do not notify.
+        return;
+      }
 
-        busy = true;
-        const loadingId = toast.loading(`Updating ${APP_DISPLAY_NAME} to v${update.version}…`);
+      if (!pendingUpdate || cancelled) return;
 
-        await invoke('plugin:updater|download_and_install', {
-          rid: update.rid,
-          onEvent: new Channel(),
-        });
-
+      busy = true;
+      let loadingId: string | number | undefined;
+      try {
+        loadingId = toast.loading(`Updating ${APP_DISPLAY_NAME} to v${pendingUpdate.version}…`);
+        await pendingUpdate.downloadAndInstall();
         if (cancelled) return;
-        toast.dismiss(loadingId);
-        toast.success(`Update installed (v${update.version}). Restart the app to finish.`, {
+        if (loadingId !== undefined) toast.dismiss(loadingId);
+        loadingId = undefined;
+        toast.success(`Update installed (v${pendingUpdate.version}). Restart the app to finish.`, {
           duration: 12_000,
         });
       } catch (error) {
-        console.error("Auto-update failed:", error);
-        toast.error("Update failed. You can install the latest build from GitHub Releases.", {
-          duration: 8_000,
-        });
+        console.error("Auto-update install failed:", error);
+        if (loadingId !== undefined) toast.dismiss(loadingId);
+        toast.error(UPDATE_FAILED_WEBSITE_MESSAGE, { duration: 10_000 });
       } finally {
+        try {
+          await pendingUpdate.close();
+        } catch {
+          /* resource may already be dropped after install */
+        }
         busy = false;
       }
     };
