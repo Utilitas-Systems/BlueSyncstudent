@@ -35,7 +35,7 @@ jobs:
 
       - name: Create Release
         id: create_release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -70,7 +70,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6.3.0
         with:
           node-version: "22"
           cache: "npm"
@@ -83,6 +83,29 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # createUpdaterArtifacts requires TAURI_SIGNING_PRIVATE_KEY; without it, tauri build exits 1.
+      # When the secret is set, keep signed updater bundles + latest.json; otherwise ship installers only.
+      - name: Configure updater for CI
+        id: configure_updater
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const hasKey = !!(process.env.KEY && String(process.env.KEY).trim());
+          const p = 'src-tauri/tauri.conf.json';
+          const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+          if (!hasKey) {
+            console.log('::notice::TAURI_SIGNING_PRIVATE_KEY not set — building without signed updater artifacts. Add the secret (full .key file contents) to publish latest.json + signatures.');
+            j.bundle = j.bundle || {};
+            j.bundle.createUpdaterArtifacts = false;
+            if (j.plugins && j.plugins.updater) j.plugins.updater.active = false;
+            fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_signing_key=${hasKey}\n`);
+          NODE
 
       - name: Build and Publish Tauri
         uses: tauri-apps/tauri-action@action-v0.6.2
@@ -98,5 +121,5 @@ jobs:
           args: ${{ matrix.tauriArgs }}
           releaseId: ${{ needs.prepare.outputs.releaseId }}
           releaseBody: 'See the assets below to download. Choose Mac (Apple Silicon or Intel) or Windows.'
-          includeUpdaterJson: true
-          updaterJsonPreferNsis: true
+          includeUpdaterJson: ${{ steps.configure_updater.outputs.has_signing_key == 'true' }}
+          updaterJsonPreferNsis: ${{ steps.configure_updater.outputs.has_signing_key == 'true' }}

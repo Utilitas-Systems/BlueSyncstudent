@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { APP_VERSION } from "@/lib/appVersion";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 const openExternalUrl = (url: string) => {
@@ -155,7 +156,13 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="relative min-h-screen flex items-center justify-center p-4">
+      <p
+        className="fixed bottom-4 left-4 z-10 text-xs text-muted-foreground tabular-nums select-none"
+        aria-label={`App version ${APP_VERSION}`}
+      >
+        v{APP_VERSION}
+      </p>
       <div className="w-full max-w-md space-y-8">
         {/* Header */}
         <div className="text-center space-y-6">
