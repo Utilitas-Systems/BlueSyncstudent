@@ -1,0 +1,199 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 220 26% 14%;
+    --foreground: 210 40% 98%;
+
+    --card: 220 26% 18%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 220 26% 18%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 26% 22%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 220 26% 22%;
+    --muted-foreground: 215 16% 65%;
+
+    --accent: 220 26% 22%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 26% 25%;
+    --input: 220 26% 25%;
+    --ring: 217 91% 60%;
+
+    /* BlueSync Design System */
+    --nexus-primary: 217 91% 60%;
+    --nexus-primary-dark: 217 91% 45%;
+    --nexus-secondary: 210 40% 98%;
+    --nexus-accent: 212 100% 85%;
+    --nexus-success: 142 76% 36%;
+    --nexus-warning: 38 92% 50%;
+    --nexus-surface: 220 26% 18%;
+    --nexus-surface-elevated: 220 26% 20%;
+    --nexus-logo-bg: 15 85% 55%;
+    
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--nexus-primary)), hsl(var(--nexus-primary-dark)));
+    --gradient-surface: linear-gradient(180deg, hsl(var(--background)), hsl(var(--nexus-surface-elevated)));
+    --gradient-card: linear-gradient(145deg, hsl(var(--nexus-surface)), hsl(var(--nexus-surface-elevated)));
+    --gradient-logo: radial-gradient(circle, hsl(var(--nexus-logo-bg)), hsl(var(--nexus-logo-bg) / 0.8));
+    
+    /* Shadows */
+    --shadow-soft: 0 2px 8px -2px hsl(0 0% 0% / 0.3);
+    --shadow-medium: 0 4px 16px -4px hsl(0 0% 0% / 0.4);
+    --shadow-strong: 0 8px 32px -8px hsl(0 0% 0% / 0.5);
+    
+    /* Animations */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 220 26% 14%;
+    --foreground: 210 40% 98%;
+
+    --card: 220 26% 18%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 220 26% 18%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 26% 22%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 220 26% 22%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62% 31%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 26% 25%;
+    --input: 220 26% 25%;
+    --ring: 217 91% 60%;
+
+    /* Dark mode overrides */
+    --nexus-surface: 220 26% 18%;
+    --nexus-surface-elevated: 220 26% 20%;
+    --gradient-surface: linear-gradient(180deg, hsl(var(--background)), hsl(var(--nexus-surface-elevated)));
+    --gradient-card: linear-gradient(145deg, hsl(var(--nexus-surface)), hsl(var(--nexus-surface-elevated)));
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    background: hsl(var(--background));
+    min-height: 100vh;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--nexus-primary));
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--nexus-primary-dark));
+  }
+}
+
+@layer components {
+  .nexus-card {
+    @apply bg-card border border-border rounded-lg;
+    background: hsl(var(--card));
+    box-shadow: var(--shadow-soft);
+    transition: var(--transition-smooth);
+  }
+
+  .nexus-card:hover {
+    box-shadow: var(--shadow-medium);
+    transform: translateY(-1px);
+  }
+
+  .nexus-input {
+    @apply w-full px-4 py-3 rounded-lg border border-border bg-input backdrop-blur-sm text-foreground placeholder:text-muted-foreground;
+    transition: var(--transition-smooth);
+  }
+
+  .nexus-input:focus {
+    @apply outline-none ring-2 ring-primary/50 border-primary;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .nexus-button {
+    @apply px-6 py-3 rounded-lg font-semibold;
+    background: var(--gradient-primary);
+    color: hsl(var(--primary-foreground));
+    transition: var(--transition-bounce);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .nexus-button:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-medium);
+  }
+
+  .nexus-button:active {
+    transform: translateY(0);
+    box-shadow: var(--shadow-soft);
+  }
+}

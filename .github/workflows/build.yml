@@ -1,0 +1,99 @@
+# App lives in ./nexus-class-sync-main (zip layout). GitHub only loads workflows from repo root.
+name: Build and Publish
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  APP_DIR: nexus-class-sync-main
+
+defaults:
+  run:
+    working-directory: nexus-class-sync-main
+
+jobs:
+  prepare:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    outputs:
+      releaseId: ${{ steps.create_release.outputs.id }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v${VERSION}-${{ github.run_number }}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: 'BlueSync Student Portal v${{ steps.version.outputs.version }} (build ${{ github.run_number }})'
+          body: 'See the assets below to download. Choose Mac (Apple Silicon or Intel) or Windows.'
+          draft: false
+          prerelease: false
+
+  build:
+    needs: prepare
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            rustTarget: aarch64-apple-darwin
+            tauriArgs: --target aarch64-apple-darwin
+          - platform: macos-latest
+            rustTarget: x86_64-apple-darwin
+            tauriArgs: --target x86_64-apple-darwin
+          - platform: windows-latest
+            rustTarget: x86_64-pc-windows-msvc
+            tauriArgs: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: nexus-class-sync-main/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rustTarget }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and Publish Tauri
+        uses: tauri-apps/tauri-action@action-v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Must be only `npm run tauri` — the action adds `build` itself. A package.json script
+          # `"tauri": "tauri build"` + default detection would become `tauri build build` and fail.
+          tauriScript: npm run tauri
+          projectPath: nexus-class-sync-main
+          args: ${{ matrix.tauriArgs }}
+          releaseId: ${{ needs.prepare.outputs.releaseId }}
+          releaseBody: 'See the assets below to download. Choose Mac (Apple Silicon or Intel) or Windows.'
+          includeUpdaterJson: false

@@ -1,0 +1,43 @@
+[package]
+name = "nexus-class-sync"
+version = "0.0.0"
+description = "BlueSync Student Portal - Connect to your classroom network and share devices securely"
+  authors = ["BlueSync"]
+license = ""
+repository = ""
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+tauri-plugin-shell = "2.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-opener = "2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61.3", features = [
+    "Devices_Bluetooth",
+    "Devices_Enumeration",
+    "Foundation",
+    "Foundation_Collections",
+    "Win32_Devices_Bluetooth",
+    "Win32_Foundation",
+    "Win32_Networking_WinSock",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com"
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+bluest = "0.6"
+
+[features]
+# This feature is used for production builds or when `devPath` points to the filesystem
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
+
