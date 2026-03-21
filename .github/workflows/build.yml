@@ -88,6 +88,8 @@ jobs:
         uses: tauri-apps/tauri-action@action-v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           # Must be only `npm run tauri` — the action adds `build` itself. A package.json script
           # `"tauri": "tauri build"` + default detection would become `tauri build build` and fail.
@@ -96,4 +98,5 @@ jobs:
           args: ${{ matrix.tauriArgs }}
           releaseId: ${{ needs.prepare.outputs.releaseId }}
           releaseBody: 'See the assets below to download. Choose Mac (Apple Silicon or Intel) or Windows.'
-          includeUpdaterJson: false
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true

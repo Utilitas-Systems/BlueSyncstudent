@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -16,6 +17,10 @@ import NotFound from "./pages/NotFound";
 import { AudioProvider } from "@/contexts/AudioContext";
 
 const queryClient = new QueryClient();
+type UpdaterMetadata = {
+  rid: number;
+  version: string;
+};
 
 const App = () => {
   const [studentId, setStudentId] = useState<string | null>(null);
@@ -69,6 +74,40 @@ const App = () => {
       window.addEventListener('beforeunload', onBeforeUnload);
       return () => window.removeEventListener('beforeunload', onBeforeUnload);
     }
+  }, []);
+
+  useEffect(() => {
+    const isTauri = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
+    if (!isTauri) return;
+
+    let cancelled = false;
+
+    const checkForUpdate = async () => {
+      try {
+        const update = await invoke<UpdaterMetadata | null>('plugin:updater|check');
+        if (!update || cancelled) return;
+
+        const shouldInstall = window.confirm(
+          `A new version (${update.version}) is available. Download and install it now?`
+        );
+        if (!shouldInstall || cancelled) return;
+
+        await invoke('plugin:updater|download_and_install', {
+          rid: update.rid,
+          onEvent: new Channel(),
+        });
+        if (cancelled) return;
+        window.alert("Update installed. Please restart BlueSync to use the new version.");
+      } catch (error) {
+        console.error("Auto-update check failed:", error);
+      }
+    };
+
+    void checkForUpdate();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
