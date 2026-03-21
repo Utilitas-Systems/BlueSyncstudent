@@ -94,11 +94,20 @@ jobs:
         run: |
           node <<'NODE'
           const fs = require('fs');
-          const hasKey = !!(process.env.KEY && String(process.env.KEY).trim());
+          const raw = process.env.KEY ? String(process.env.KEY).trim() : '';
+          // Non-empty GitHub secret that is not a real minisign private key still triggers signing and fails all platforms.
+          const looksLikeMinisignKey =
+            raw.length >= 80 &&
+            /minisign|untrusted comment/i.test(raw);
+          const hasKey = looksLikeMinisignKey;
           const p = 'src-tauri/tauri.conf.json';
           const j = JSON.parse(fs.readFileSync(p, 'utf8'));
           if (!hasKey) {
-            console.log('::notice::TAURI_SIGNING_PRIVATE_KEY not set — building without signed updater artifacts. Add the secret (full .key file contents) to publish latest.json + signatures.');
+            if (raw.length > 0) {
+              console.log('::warning::TAURI_SIGNING_PRIVATE_KEY is set but does not look like a minisign private key (expect minisign + untrusted comment). Building without updater signing; fix the secret or remove it.');
+            } else {
+              console.log('::notice::TAURI_SIGNING_PRIVATE_KEY not set — building without signed updater artifacts. Paste the full .key file from `tauri signer generate` to enable latest.json + signatures.');
+            }
             j.bundle = j.bundle || {};
             j.bundle.createUpdaterArtifacts = false;
             if (j.plugins && j.plugins.updater) j.plugins.updater.active = false;
