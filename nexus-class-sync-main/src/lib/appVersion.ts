@@ -1,5 +1,5 @@
 /**
- * Login footer label (can use marketing style).
- * `tauri.conf.json` → `version` must stay valid SemVer (e.g. 1.0.3, not 1.00.03) or `tauri build` fails in CI.
+ * Login footer label (marketing style).
+ * `tauri.conf.json` → `version` must stay strict SemVer (no leading zeros in numeric parts, e.g. 1.0.4 not 1.00.04) or `tauri build` / updater tooling can fail.
  */
-export const APP_VERSION = "1.00.03";
+export const APP_VERSION = "1.00.04";
