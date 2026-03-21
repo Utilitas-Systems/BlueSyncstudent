@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "BlueSync Student Portal",
+  "productName": "BlueSync Student",
   "version": "1.0.4",
   "identifier": "com.monere.studentportal",
   "build": {
@@ -11,7 +11,7 @@
   "app": {
     "windows": [
       {
-        "title": "BlueSync Student Portal",
+        "title": "BlueSync Student",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
@@ -41,7 +41,7 @@
     "copyright": "",
     "category": "Education",
     "shortDescription": "Secure classroom device sharing for students",
-    "longDescription": "BlueSync Student Portal - Connect to your classroom network and share devices securely",
+    "longDescription": "BlueSync Student — connect to your classroom network and share devices securely",
     "macOS": {
       "frameworks": [],
       "minimumSystemVersion": "10.13",

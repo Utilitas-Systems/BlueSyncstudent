@@ -91,7 +91,7 @@ const App = () => {
         if (!update || cancelled) return;
 
         busy = true;
-        const loadingId = toast.loading(`Updating BlueSync to v${update.version}…`);
+        const loadingId = toast.loading(`Updating BlueSync Student to v${update.version}…`);
 
         await invoke('plugin:updater|download_and_install', {
           rid: update.rid,

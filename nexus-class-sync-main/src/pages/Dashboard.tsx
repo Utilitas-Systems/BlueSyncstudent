@@ -473,7 +473,7 @@ const Dashboard = () => {
         const isTauri = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
         if (isTauri) {
           // Use global notification plugin via window.__TAURI__ bridge
-          try { await (window as any).__TAURI__?.notification?.send?.({ title: 'BlueSync', body: 'your still being monitored' }); }
+          try { await (window as any).__TAURI__?.notification?.send?.({ title: 'BlueSync Student', body: 'your still being monitored' }); }
           catch { /* Notification not available */ }
         }
       } catch {}
@@ -783,7 +783,7 @@ const Dashboard = () => {
               <Wifi className="h-6 w-6 text-nexus-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-nexus-secondary">BlueSync</h1>
+              <h1 className="text-2xl font-bold text-nexus-secondary">BlueSync Student</h1>
               <p className="text-sm text-muted-foreground">{school.school_name}</p>
             </div>
           </div>

@@ -40,7 +40,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: 'BlueSync Student Portal v${{ steps.version.outputs.version }} (build ${{ github.run_number }})'
+          name: 'BlueSync Student v${{ steps.version.outputs.version }} (build ${{ github.run_number }})'
           body: 'See the assets below to download. Choose Mac (Apple Silicon or Intel) or Windows.'
           draft: false
           prerelease: false

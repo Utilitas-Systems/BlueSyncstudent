@@ -177,10 +177,10 @@ const Login = () => {
           </div>
           <div>
             <h1 className="text-4xl font-bold text-nexus-secondary mb-2">
-              BlueSync
+              BlueSync Student
             </h1>
             <p className="text-nexus-accent font-medium">
-              For students
+              Classroom device sharing
             </p>
           </div>
         </div>
@@ -188,7 +188,7 @@ const Login = () => {
         {/* Login Form */}
         <Card className="nexus-card">
           <CardHeader className="text-center">
-            <CardTitle className="text-xl text-nexus-secondary">Student Portal</CardTitle>
+            <CardTitle className="text-xl text-nexus-secondary">Sign in</CardTitle>
             <CardDescription className="text-muted-foreground">
               Enter your credentials to access the classroom
             </CardDescription>

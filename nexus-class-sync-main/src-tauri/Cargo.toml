@@ -1,7 +1,7 @@
 [package]
 name = "nexus-class-sync"
 version = "0.0.0"
-description = "BlueSync Student Portal - Connect to your classroom network and share devices securely"
+description = "BlueSync Student — connect to your classroom network and share devices securely"
   authors = ["BlueSync"]
 license = ""
 repository = ""
