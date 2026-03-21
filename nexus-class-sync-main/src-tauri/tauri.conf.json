@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "BlueSync Student",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "identifier": "com.monere.studentportal",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -43,6 +43,7 @@
     "shortDescription": "Secure classroom device sharing for students",
     "longDescription": "BlueSync Student — connect to your classroom network and share devices securely",
     "macOS": {
+      "bundleName": "BlueSync Student",
       "frameworks": [],
       "minimumSystemVersion": "10.13",
       "exceptionDomain": "",

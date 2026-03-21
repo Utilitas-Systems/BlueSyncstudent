@@ -15,6 +15,7 @@ import Settings from "./pages/Settings";
 import ClassDetails from "./pages/ClassDetails";
 import NotFound from "./pages/NotFound";
 import { AudioProvider } from "@/contexts/AudioContext";
+import { APP_DISPLAY_NAME } from "@/lib/appVersion";
 
 const queryClient = new QueryClient();
 type UpdaterMetadata = {
@@ -26,6 +27,13 @@ const App = () => {
   const [studentId, setStudentId] = useState<string | null>(null);
   const [classId, setClassId] = useState<string | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(true);
+
+  useEffect(() => {
+    const isTauri = typeof (window as any).__TAURI_INTERNALS__ !== "undefined";
+    if (!isTauri) return;
+    document.title = APP_DISPLAY_NAME;
+    void getCurrentWindow().setTitle(APP_DISPLAY_NAME);
+  }, []);
 
   useEffect(() => {
     const setStudentOffline = async () => {
@@ -91,7 +99,7 @@ const App = () => {
         if (!update || cancelled) return;
 
         busy = true;
-        const loadingId = toast.loading(`Updating BlueSync Student to v${update.version}…`);
+        const loadingId = toast.loading(`Updating ${APP_DISPLAY_NAME} to v${update.version}…`);
 
         await invoke('plugin:updater|download_and_install', {
           rid: update.rid,

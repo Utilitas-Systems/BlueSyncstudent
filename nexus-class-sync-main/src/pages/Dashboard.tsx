@@ -12,6 +12,7 @@ import { useBroadcastPresence } from "@/hooks/useBroadcastPresence";
 import { useStudentAttentionListener } from "@/hooks/useStudentAttentionListener";
 import { supabase } from "@/integrations/supabase/client";
 import nukeSoundUrl from "@/assets/nuke-sound.mp3";
+import { APP_DISPLAY_NAME } from "@/lib/appVersion";
 import { invoke } from "@tauri-apps/api/core";
 import { Progress } from "@/components/ui/progress";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -473,7 +474,7 @@ const Dashboard = () => {
         const isTauri = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
         if (isTauri) {
           // Use global notification plugin via window.__TAURI__ bridge
-          try { await (window as any).__TAURI__?.notification?.send?.({ title: 'BlueSync Student', body: 'your still being monitored' }); }
+          try { await (window as any).__TAURI__?.notification?.send?.({ title: APP_DISPLAY_NAME, body: 'your still being monitored' }); }
           catch { /* Notification not available */ }
         }
       } catch {}
@@ -783,7 +784,7 @@ const Dashboard = () => {
               <Wifi className="h-6 w-6 text-nexus-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-nexus-secondary">BlueSync Student</h1>
+              <h1 className="text-2xl font-bold text-nexus-secondary">{APP_DISPLAY_NAME}</h1>
               <p className="text-sm text-muted-foreground">{school.school_name}</p>
             </div>
           </div>

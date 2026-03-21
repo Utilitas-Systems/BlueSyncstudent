@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { APP_VERSION } from "@/lib/appVersion";
+import { APP_DISPLAY_NAME, APP_VERSION } from "@/lib/appVersion";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 const openExternalUrl = (url: string) => {
@@ -177,7 +177,7 @@ const Login = () => {
           </div>
           <div>
             <h1 className="text-4xl font-bold text-nexus-secondary mb-2">
-              BlueSync Student
+              {APP_DISPLAY_NAME}
             </h1>
             <p className="text-nexus-accent font-medium">
               Classroom device sharing
