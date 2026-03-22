@@ -1,3 +1,6 @@
+#[cfg(target_os = "macos")]
+mod macos_bluetooth;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -164,30 +167,7 @@ fn get_current_bluetooth_devices() -> Result<Vec<String>, String> {
 
     #[cfg(target_os = "macos")]
     {
-        return tauri::async_runtime::block_on(async {
-            let adapter = bluest::Adapter::default()
-                .await
-                .ok_or("Bluetooth adapter not found")?;
-            adapter
-                .wait_available()
-                .await
-                .map_err(|e| e.to_string())?;
-            let devices = adapter
-                .connected_devices()
-                .await
-                .map_err(|e| e.to_string())?;
-            let mut names: Vec<String> = Vec::new();
-            for device in devices {
-                if let Ok(name) = device.name_async().await {
-                    if !name.is_empty() {
-                        names.push(name);
-                    }
-                }
-            }
-            names.sort();
-            names.dedup();
-            Ok(names)
-        });
+        return macos_bluetooth::connected_device_names();
     }
 
     #[allow(unreachable_code)]
@@ -272,34 +252,7 @@ fn get_current_bluetooth_devices_detailed() -> Result<Vec<DetailedBluetoothDevic
 
     #[cfg(target_os = "macos")]
     {
-        return tauri::async_runtime::block_on(async {
-            let adapter = bluest::Adapter::default()
-                .await
-                .ok_or("Bluetooth adapter not found")?;
-            adapter
-                .wait_available()
-                .await
-                .map_err(|e| e.to_string())?;
-            let devices = adapter
-                .connected_devices()
-                .await
-                .map_err(|e| e.to_string())?;
-            let mut results: Vec<DetailedBluetoothDevice> = Vec::new();
-            for device in devices {
-                let name = device.name_async().await.unwrap_or_default();
-                if name.is_empty() {
-                    continue;
-                }
-                let id_str = format!("{:?}", device.id());
-                results.push(DetailedBluetoothDevice {
-                    device_mac_address: id_str,
-                    device_name: name,
-                    connection_status: "connected".to_string(),
-                    signal_strength: device.rssi().await.ok().map(|r| r as i32),
-                });
-            }
-            Ok(results)
-        });
+        return macos_bluetooth::connected_devices_detailed();
     }
 
     #[allow(unreachable_code)]
