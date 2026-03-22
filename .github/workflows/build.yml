@@ -95,16 +95,17 @@ jobs:
           node <<'NODE'
           const fs = require('fs');
           const raw = process.env.KEY ? String(process.env.KEY).trim() : '';
-          // Non-empty GitHub secret that is not a real minisign private key still triggers signing and fails all platforms.
-          const looksLikeMinisignKey =
+          // Public keys also contain "minisign" + "untrusted comment" — using them as TAURI_SIGNING_PRIVATE_KEY breaks the build.
+          const looksLikeMinisignPrivateKey =
             raw.length >= 80 &&
-            /minisign|untrusted comment/i.test(raw);
-          const hasKey = looksLikeMinisignKey;
+            /minisign encrypted secret key/i.test(raw) &&
+            !/minisign public key/i.test(raw);
+          const hasKey = looksLikeMinisignPrivateKey;
           const p = 'src-tauri/tauri.conf.json';
           const j = JSON.parse(fs.readFileSync(p, 'utf8'));
           if (!hasKey) {
             if (raw.length > 0) {
-              console.log('::warning::TAURI_SIGNING_PRIVATE_KEY is set but does not look like a minisign private key (expect minisign + untrusted comment). Building without updater signing; fix the secret or remove it.');
+              console.log('::warning::TAURI_SIGNING_PRIVATE_KEY must be the full PRIVATE key file from `tauri signer generate` (first line contains "minisign encrypted secret key"). Not the .pub file. Building without signed updater artifacts.');
             } else {
               console.log('::notice::TAURI_SIGNING_PRIVATE_KEY not set — building without signed updater artifacts. Paste the full .key file from `tauri signer generate` to enable latest.json + signatures.');
             }
@@ -120,8 +121,9 @@ jobs:
         uses: tauri-apps/tauri-action@action-v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Only pass signing vars when the secret looks like a real private key; otherwise the bundler still reads env and can fail.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.configure_updater.outputs.has_signing_key == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ steps.configure_updater.outputs.has_signing_key == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         with:
           # Must be only `npm run tauri` — the action adds `build` itself. A package.json script
           # `"tauri": "tauri build"` + default detection would become `tauri build build` and fail.
