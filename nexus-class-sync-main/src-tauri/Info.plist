@@ -4,5 +4,7 @@
 <dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>BlueSync needs Bluetooth access to detect connected devices for classroom sharing.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>BlueSync measures system audio (videos, browser, apps)—not your microphone—so your teacher can see when sound is playing, similar to the Windows app. Apple requires Screen Recording permission to access system audio; video is minimal (low resolution) and is not saved.</string>
 </dict>
 </plist>

@@ -117,13 +117,29 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_signing_key=${hasKey}\n`);
           NODE
 
+      # Multiline secrets in YAML ${{ }} often break on macOS runners; append to GITHUB_ENV instead.
+      - name: Load signing secrets for Tauri (multiline-safe)
+        if: steps.configure_updater.outputs.has_signing_key == 'true'
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          DELIM="TAURI_SIGNING_KEY___EOF___"
+          echo "TAURI_SIGNING_PRIVATE_KEY<<$DELIM" >> "$GITHUB_ENV"
+          printf '%s\n' "$SIGNING_KEY" >> "$GITHUB_ENV"
+          echo "$DELIM" >> "$GITHUB_ENV"
+          if [ -n "${SIGNING_PASSWORD+x}" ] && [ -n "$SIGNING_PASSWORD" ]; then
+            DELIM2="TAURI_SIGNING_PW___EOF___"
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD<<$DELIM2" >> "$GITHUB_ENV"
+            printf '%s\n' "$SIGNING_PASSWORD" >> "$GITHUB_ENV"
+            echo "$DELIM2" >> "$GITHUB_ENV"
+          fi
+
       - name: Build and Publish Tauri
         uses: tauri-apps/tauri-action@action-v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Only pass signing vars when the secret looks like a real private key; otherwise the bundler still reads env and can fail.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.configure_updater.outputs.has_signing_key == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ steps.configure_updater.outputs.has_signing_key == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         with:
           # Must be only `npm run tauri` — the action adds `build` itself. A package.json script
           # `"tauri": "tauri build"` + default detection would become `tauri build build` and fail.

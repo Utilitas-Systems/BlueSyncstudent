@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { useBroadcastAudio } from "@/hooks/useBroadcastAudio";
+import { useAudioContext } from "@/contexts/AudioContext";
 import { useBroadcastDevices } from "@/hooks/useBroadcastDevices";
 import { useBroadcastPresence } from "@/hooks/useBroadcastPresence";
 import { useStudentAttentionListener } from "@/hooks/useStudentAttentionListener";
@@ -86,6 +86,7 @@ const Dashboard = () => {
   const audioUnlockedRef = useRef(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { audioLevel, isListening } = useAudioContext();
 
   // Unlock alert audio on first user interaction (required for autoplay policy)
   useEffect(() => {
@@ -135,25 +136,6 @@ const Dashboard = () => {
     presenceOnline = presenceResult.isOnline || false;
     startPresence = presenceResult.startPresence || (() => {});
     stopPresence = presenceResult.stopPresence || (() => {});
-  }
-
-  // Real-time broadcast hooks
-  // Enable audio monitoring whenever user is logged in (always detect system audio for display)
-  const audioResult = useBroadcastAudio({
-    studentId: userId,
-    classId: classId,
-    enabled: !!userId,
-  });
-
-  // Extract audio values safely
-  let audioLevel = 0;
-  let isListening = false;
-  
-  if (audioResult && typeof audioResult === 'object' && 'audioLevel' in audioResult) {
-    audioLevel = audioResult.audioLevel || 0;
-    isListening = audioResult.isListening || false;
-  } else if (typeof audioResult === 'number') {
-    audioLevel = audioResult;
   }
 
   const devicesResult = useBroadcastDevices({

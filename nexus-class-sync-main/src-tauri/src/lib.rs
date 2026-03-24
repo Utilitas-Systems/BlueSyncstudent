@@ -1,4 +1,6 @@
 #[cfg(target_os = "macos")]
+mod macos_audio;
+#[cfg(target_os = "macos")]
 mod macos_bluetooth;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -10,7 +12,8 @@ pub fn run() {
             get_current_bluetooth_devices,
             get_current_bluetooth_devices_detailed,
             get_bluetooth_devices,
-            get_system_audio_peak
+            get_system_audio_peak,
+            get_system_audio_peak_detailed
         ])
         .plugin(tauri_plugin_shell::init())
         .run(tauri::generate_context!())
@@ -265,7 +268,8 @@ fn get_bluetooth_devices() -> Result<Vec<String>, String> {
     get_current_bluetooth_devices()
 }
 
-// Windows WASAPI: Get default render device peak 0.0 - 1.0, respecting master volume/mute
+// Windows: WASAPI default render peak 0.0–1.0 (master volume/mute).
+// macOS: ScreenCaptureKit system-audio buffers only (not microphone)—see `macos_audio`.
 #[tauri::command]
 fn get_system_audio_peak() -> Result<f32, String> {
     #[cfg(target_os = "windows")]
@@ -318,8 +322,43 @@ fn get_system_audio_peak() -> Result<f32, String> {
         let adjusted = (peak * vol).max(0.0).min(1.0);
         Ok(adjusted)
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        macos_audio::system_audio_peak()
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         Ok(0.0)
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SystemAudioPeakDetails {
+    peak: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    macos_meter_error: Option<String>,
+    is_macos: bool,
+}
+
+/// Peak plus macOS ScreenCaptureKit error (for in-app setup help). Non-mac: `is_macos` false, error none.
+#[tauri::command]
+fn get_system_audio_peak_detailed() -> SystemAudioPeakDetails {
+    let peak = get_system_audio_peak().unwrap_or(0.0);
+    #[cfg(target_os = "macos")]
+    {
+        SystemAudioPeakDetails {
+            peak,
+            macos_meter_error: macos_audio::macos_meter_error_snapshot(),
+            is_macos: true,
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        SystemAudioPeakDetails {
+            peak,
+            macos_meter_error: None,
+            is_macos: false,
+        }
     }
 }

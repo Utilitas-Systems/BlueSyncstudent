@@ -1,33 +1,104 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { supabase } from '@/integrations/supabase/client';
 
+const MAC_SESSION_ZERO_HINT = 'bluesync-mac-audio-zero-hint-v1';
+
+const MAC_HELP_FOOTER = `
+
+To share system audio levels with your teacher (videos, browser, apps):
+
+1. Open System Settings → Privacy & Security → Screen Recording.
+2. Turn ON BlueSync Student.
+3. Quit and reopen BlueSync if macOS asks you to.
+
+Apple requires Screen Recording permission for system audio metering. The app does not save screen recordings—it only reads audio levels, similar to the Windows version.`;
+
+const MAC_ZERO_ONLY_HELP = `We have not detected system audio for a little while.
+
+• Confirm Screen Recording is ON for BlueSync (System Settings → Privacy & Security → Screen Recording).
+• Play sound from a video or music while this class session is active—levels measure what plays through the Mac, not a microphone.
+• Restart the app after changing permissions.`;
+
+type PeakDetails = {
+  peak: number;
+  isMacos?: boolean;
+  macosMeterError?: string | null;
+};
+
+type BroadcastAudioObjectParams = {
+  studentId: string;
+  classId: string;
+  enabled?: boolean;
+};
+
+function isBroadcastAudioObjectParams(
+  arg: unknown
+): arg is BroadcastAudioObjectParams {
+  if (typeof arg !== 'object' || arg === null) return false;
+  const o = arg as Record<string, unknown>;
+  return typeof o.studentId === 'string' && typeof o.classId === 'string';
+}
+
+export type BroadcastAudioObjectResult = {
+  audioLevel: number;
+  isListening: boolean;
+  macAudioHelpOpen: boolean;
+  macAudioHelpTitle: string;
+  macAudioHelpMessage: string;
+  closeMacAudioHelp: () => void;
+};
+
 // Overloads to support legacy positional args and new object-based API
 export function useBroadcastAudio(classId?: string, enabled?: boolean): number;
-export function useBroadcastAudio(params: { studentId: string; classId: string; enabled?: boolean }): { audioLevel: number; isListening: boolean };
 export function useBroadcastAudio(
-  arg1?: string | { studentId: string; classId: string; enabled?: boolean },
+  params: BroadcastAudioObjectParams
+): BroadcastAudioObjectResult;
+export function useBroadcastAudio(
+  arg1?: string | BroadcastAudioObjectParams,
   arg2: boolean = true
-) {
-  const isObjectParams = typeof arg1 === 'object' && arg1 !== null;
-  const classId = isObjectParams ? (arg1 as any).classId : (arg1 as string | undefined);
-  const studentId = isObjectParams ? (arg1 as any).studentId : undefined;
-  const enabled = isObjectParams ? !!(arg1 as any).enabled : arg2;
+): number | BroadcastAudioObjectResult {
+  const isObjectParams = isBroadcastAudioObjectParams(arg1);
+  const classId = isObjectParams ? arg1.classId : arg1;
+  const studentId = isObjectParams ? arg1.studentId : undefined;
+  const enabled = isObjectParams ? !!arg1.enabled : arg2;
 
   const [level, setLevel] = useState(0);
+  const [macHelpOpen, setMacHelpOpen] = useState(false);
+  const [macHelpTitle, setMacHelpTitle] = useState('');
+  const [macHelpMessage, setMacHelpMessage] = useState('');
   const checkIntervalRef = useRef<number | null>(null);
   const chanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const lastIsTalkingRef = useRef<boolean | null>(null);
   const lastBroadcastTimeRef = useRef<number>(0);
   const subscribedRef = useRef(false);
+  const lastMeterErrorShownRef = useRef<string | null>(null);
+  const macSilentStreakRef = useRef(0);
+
+  const showMacHelp = useCallback((title: string, message: string) => {
+    setMacHelpTitle(title);
+    setMacHelpMessage(message);
+    setMacHelpOpen(true);
+  }, []);
 
   useEffect(() => {
     if (!enabled) {
-      if (checkIntervalRef.current) { window.clearInterval(checkIntervalRef.current); checkIntervalRef.current = null; }
-      if (chanRef.current) { try { chanRef.current.unsubscribe(); } catch {} chanRef.current = null; }
+      if (checkIntervalRef.current) {
+        window.clearInterval(checkIntervalRef.current);
+        checkIntervalRef.current = null;
+      }
+      if (chanRef.current) {
+        try {
+          chanRef.current.unsubscribe();
+        } catch {
+          /* ignore */
+        }
+        chanRef.current = null;
+      }
       setLevel(0);
       lastIsTalkingRef.current = null;
       subscribedRef.current = false;
+      macSilentStreakRef.current = 0;
       return;
     }
 
@@ -52,8 +123,8 @@ export function useBroadcastAudio(
             student_id: studentId,
             audio_level: audioLevel,
             is_talking: isTalking,
-            timestamp
-          }
+            timestamp,
+          },
         });
         lastBroadcastTimeRef.current = Date.now();
       } catch (e) {
@@ -61,19 +132,58 @@ export function useBroadcastAudio(
       }
     };
 
+    const pctFromPeak = (peak: number) => {
+      const rawPct = (Number(peak) || 0) * 100;
+      const boosted = Math.min(100, rawPct * 3.5);
+      return Math.max(0, Math.round(boosted));
+    };
+
     checkIntervalRef.current = window.setInterval(async () => {
       try {
-        const peak = await invoke<number>('get_system_audio_peak');
-        const rawPct = (Number(peak) || 0) * 100;
-        const boosted = Math.min(100, rawPct * 3.5);
-        const pct = Math.max(0, Math.round(boosted));
+        let pct = 0;
+        let details: PeakDetails | undefined;
+        try {
+          const d = await invoke<PeakDetails>('get_system_audio_peak_detailed');
+          details = d;
+          pct = pctFromPeak(d.peak);
+        } catch {
+          const peak = await invoke<number>('get_system_audio_peak');
+          pct = pctFromPeak(peak);
+        }
+
         setLevel(pct);
 
-        const isTalking = pct > 20; // talking threshold
+        if (details?.isMacos && details.macosMeterError) {
+          const err = String(details.macosMeterError);
+          if (err !== lastMeterErrorShownRef.current) {
+            lastMeterErrorShownRef.current = err;
+            showMacHelp('System audio is not available', `${err}${MAC_HELP_FOOTER}`);
+          }
+          macSilentStreakRef.current = 0;
+        } else {
+          if (details?.isMacos) {
+            lastMeterErrorShownRef.current = null;
+          }
+          if (details?.isMacos && pct === 0) {
+            macSilentStreakRef.current += 1;
+            if (
+              macSilentStreakRef.current >= 6 &&
+              typeof sessionStorage !== 'undefined' &&
+              !sessionStorage.getItem(MAC_SESSION_ZERO_HINT)
+            ) {
+              sessionStorage.setItem(MAC_SESSION_ZERO_HINT, '1');
+              showMacHelp('No system audio detected', `${MAC_ZERO_ONLY_HELP}${MAC_HELP_FOOTER}`);
+            }
+          } else {
+            macSilentStreakRef.current = 0;
+          }
+        }
+
+        const isTalking = pct > 20;
         const now = Date.now();
-    const timeSinceLastBroadcast = now - lastBroadcastTimeRef.current;
-    const stateChanged = lastIsTalkingRef.current !== null && lastIsTalkingRef.current !== isTalking;
-    const heartbeatDue = timeSinceLastBroadcast >= 30 * 1000; // 30s heartbeat
+        const timeSinceLastBroadcast = now - lastBroadcastTimeRef.current;
+        const stateChanged = lastIsTalkingRef.current !== null && lastIsTalkingRef.current !== isTalking;
+        const heartbeatDue = timeSinceLastBroadcast >= 30 * 1000;
 
         const shouldBroadcast = stateChanged || heartbeatDue;
         if (shouldBroadcast) {
@@ -86,34 +196,63 @@ export function useBroadcastAudio(
       } catch (error) {
         console.error('[useBroadcastAudio] Error getting audio peak:', error);
         setLevel(0);
+        try {
+          const d = await invoke<PeakDetails>('get_system_audio_peak_detailed');
+          if (d.isMacos) {
+            showMacHelp(
+              'System audio is not available',
+              `${String(error)}${MAC_HELP_FOOTER}`
+            );
+          }
+        } catch {
+          /* not tauri or command missing */
+        }
       }
-    }, 2 * 1000); // Check audio every 2 seconds
+    }, 2 * 1000);
 
     return () => {
-      if (checkIntervalRef.current) { window.clearInterval(checkIntervalRef.current); checkIntervalRef.current = null; }
-      // Send final zero audio before cleanup (per transmission guide)
-      if (chanRef.current && classId && studentId) {
-        chanRef.current.send({
-          type: 'broadcast',
-          event: 'audio_level',
-          payload: {
-            student_id: studentId,
-            audio_level: 0,
-            is_talking: false,
-            timestamp: new Date().toISOString()
-          }
-        }).catch(() => {});
+      if (checkIntervalRef.current) {
+        window.clearInterval(checkIntervalRef.current);
+        checkIntervalRef.current = null;
       }
-      if (chanRef.current) { try { chanRef.current.unsubscribe(); } catch {} chanRef.current = null; }
+      if (chanRef.current && classId && studentId) {
+        chanRef.current
+          .send({
+            type: 'broadcast',
+            event: 'audio_level',
+            payload: {
+              student_id: studentId,
+              audio_level: 0,
+              is_talking: false,
+              timestamp: new Date().toISOString(),
+            },
+          })
+          .catch(() => {});
+      }
+      if (chanRef.current) {
+        try {
+          chanRef.current.unsubscribe();
+        } catch {
+          /* ignore */
+        }
+        chanRef.current = null;
+      }
     };
-  }, [classId, enabled, studentId]);
+  }, [classId, enabled, studentId, showMacHelp]);
 
   const result = useMemo(() => {
     if (isObjectParams) {
-      return { audioLevel: level, isListening: !!classId && !!enabled };
+      return {
+        audioLevel: level,
+        isListening: !!classId && !!enabled,
+        macAudioHelpOpen: macHelpOpen,
+        macAudioHelpTitle: macHelpTitle,
+        macAudioHelpMessage: macHelpMessage,
+        closeMacAudioHelp: () => setMacHelpOpen(false),
+      };
     }
     return level;
-  }, [isObjectParams, level, classId, enabled]);
+  }, [isObjectParams, level, classId, enabled, macHelpOpen, macHelpTitle, macHelpMessage]);
 
-  return result as any;
+  return result;
 }

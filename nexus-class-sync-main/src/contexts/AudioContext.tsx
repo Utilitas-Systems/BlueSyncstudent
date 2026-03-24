@@ -1,5 +1,14 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, ReactNode } from 'react';
 import { useBroadcastAudio } from '@/hooks/useBroadcastAudio';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface AudioContextType {
   audioLevel: number;
@@ -25,17 +34,47 @@ interface AudioProviderProps {
 }
 
 export const AudioProvider = ({ children, studentId, classId, enabled }: AudioProviderProps) => {
-  const { audioLevel, isListening, analyser, lastBroadcastTime } = useBroadcastAudio({
+  const {
+    audioLevel,
+    isListening,
+    macAudioHelpOpen,
+    macAudioHelpTitle,
+    macAudioHelpMessage,
+    closeMacAudioHelp,
+  } = useBroadcastAudio({
     studentId: studentId || '',
     classId: classId || '',
-    enabled: enabled && !!classId && !!studentId,
-    updateInterval: 8000
+    enabled,
   });
 
   return (
-    <AudioContext.Provider value={{ audioLevel, isListening, analyser, lastBroadcastTime }}>
-      {children}
-    </AudioContext.Provider>
+    <>
+      <AlertDialog
+        open={macAudioHelpOpen}
+        onOpenChange={(open) => {
+          if (!open) closeMacAudioHelp();
+        }}
+      >
+        <AlertDialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{macAudioHelpTitle}</AlertDialogTitle>
+            <AlertDialogDescription className="whitespace-pre-wrap text-left text-muted-foreground">
+              {macAudioHelpMessage}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction type="button" onClick={closeMacAudioHelp}>
+              OK
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AudioContext.Provider
+        value={{ audioLevel, isListening, analyser: null, lastBroadcastTime: null }}
+      >
+        {children}
+      </AudioContext.Provider>
+    </>
   );
 };
 

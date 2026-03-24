@@ -45,7 +45,7 @@
     "macOS": {
       "bundleName": "BlueSync Student",
       "frameworks": [],
-      "minimumSystemVersion": "10.13",
+      "minimumSystemVersion": "13.0",
       "exceptionDomain": "",
       "signingIdentity": null,
       "providerShortName": null,

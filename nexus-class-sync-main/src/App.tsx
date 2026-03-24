@@ -181,10 +181,10 @@ const App = () => {
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <AudioProvider 
+        <AudioProvider
           studentId={studentId}
           classId={classId}
-          enabled={audioEnabled}
+          enabled={audioEnabled && !!studentId}
         >
           <BrowserRouter>
           <Routes>
