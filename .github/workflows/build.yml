@@ -8,6 +8,7 @@ on:
 
 env:
   APP_DIR: nexus-class-sync-main
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 defaults:
   run:
@@ -84,9 +85,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # createUpdaterArtifacts requires TAURI_SIGNING_PRIVATE_KEY.
-      # For production auto-update support we require a valid PRIVATE key and fail fast if missing/invalid,
-      # instead of silently shipping installers without updater metadata/signatures.
+      # createUpdaterArtifacts requires TAURI_SIGNING_PRIVATE_KEY; without it, tauri build can fail.
+      # If the secret is invalid/missing, ship installers only and skip updater artifacts.
       - name: Configure updater for CI
         id: configure_updater
         shell: bash
@@ -106,11 +106,14 @@ jobs:
           const j = JSON.parse(fs.readFileSync(p, 'utf8'));
           if (!hasKey) {
             if (raw.length > 0) {
-              console.log('::error::TAURI_SIGNING_PRIVATE_KEY must be the full PRIVATE key file from `tauri signer generate` (first line contains "minisign encrypted secret key"). Not the .pub file.');
+              console.log('::warning::TAURI_SIGNING_PRIVATE_KEY must be the full PRIVATE key file from `tauri signer generate` (first line contains "minisign encrypted secret key"). Not the .pub file. Building without signed updater artifacts.');
             } else {
-              console.log('::error::TAURI_SIGNING_PRIVATE_KEY is not set. Auto-update requires signed updater artifacts (latest.json + signatures).');
+              console.log('::notice::TAURI_SIGNING_PRIVATE_KEY not set — building without signed updater artifacts. Paste the full .key file from `tauri signer generate` to enable latest.json + signatures.');
             }
-            process.exit(1);
+            j.bundle = j.bundle || {};
+            j.bundle.createUpdaterArtifacts = false;
+            if (j.plugins && j.plugins.updater) j.plugins.updater.active = false;
+            fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
           }
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_signing_key=${hasKey}\n`);
           NODE

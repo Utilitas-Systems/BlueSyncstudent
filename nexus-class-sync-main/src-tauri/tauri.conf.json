@@ -63,7 +63,7 @@
       "endpoints": [
         "https://github.com/Utilitas-Systems/BlueSyncstudent/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IHJzaWduIGVuY3J5cHRlZCBzZWNyZXQga2V5ClJXUlRZMEl5RDR5WGlqcWU1Z29VWmVYejZuM2V5TTluTzRJK3B5N3F2cE5salZiaEpmOEFBQkFBQUFBQUFBQUFBQUlBQUFBQWwzZHFiL202WGx0T1NObDlESWtycjgyYkVGUUNqRGcrd016SnE1b0FQcWxQTXpVZ092eTVUZjI3UUQrOVFkenlEbnppM1Y0NWV3TkpMYjNmRWx0czNHSjVlcGMwNFhBb051NjV5VmNyRnNJYktWQTZ4OXNhYkJIcTF3MFA3aFpuZnY2djdnaVZZYU09Cg=="
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJBNzgzQUNEQzc0ODg5NDcKUldSSGlVakh6VHA0dXQvMzVQU1V0UFcyR2VTUklKRG4yb0hob2RVSU55S25BRUhYWDViQTUreHkK"
     },
     "shell": {
       "open": true
