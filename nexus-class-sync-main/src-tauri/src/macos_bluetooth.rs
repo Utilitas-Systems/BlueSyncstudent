@@ -29,6 +29,69 @@ pub fn system_profiler_bluetooth_json() -> Result<String, String> {
     String::from_utf8(out.stdout).map_err(|e| format!("Invalid UTF-8 from system_profiler: {e}"))
 }
 
+/// Fallback: parse plain-text system_profiler output for "Connected: Yes".
+fn connected_from_system_profiler_text() -> Result<Vec<(String, String)>, String> {
+    let out = std::process::Command::new("/usr/sbin/system_profiler")
+        .arg("SPBluetoothDataType")
+        .output()
+        .map_err(|e| format!("Could not run system_profiler text mode: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "system_profiler (text) exited with status {}",
+            out.status
+        ));
+    }
+    let s = String::from_utf8(out.stdout)
+        .map_err(|e| format!("Invalid UTF-8 from system_profiler (text): {e}"))?;
+
+    let mut out_pairs: Vec<(String, String)> = Vec::new();
+    let mut last_device_name: Option<String> = None;
+    let mut last_address: Option<String> = None;
+
+    for raw in s.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        if line.ends_with(':') && !line.contains("Address:") && !line.contains("Connected:") {
+            let name = line.trim_end_matches(':').trim();
+            // Skip obvious section headers.
+            if !name.eq_ignore_ascii_case("bluetooth")
+                && !name.eq_ignore_ascii_case("apple bluetooth software version")
+                && !name.eq_ignore_ascii_case("hardware, features, and settings")
+                && !name.eq_ignore_ascii_case("devices (connected, configured, etc.)")
+                && !name.eq_ignore_ascii_case("my devices")
+            {
+                last_device_name = Some(name.to_string());
+                last_address = None;
+            }
+            continue;
+        }
+
+        if let Some(v) = line.strip_prefix("Address:") {
+            let addr = v.trim();
+            if !addr.is_empty() {
+                last_address = Some(addr.to_string());
+            }
+            continue;
+        }
+
+        if let Some(v) = line.strip_prefix("Connected:") {
+            let yes = v.trim().eq_ignore_ascii_case("yes");
+            if yes {
+                if let Some(name) = &last_device_name {
+                    out_pairs.push((name.clone(), last_address.clone().unwrap_or_default()));
+                }
+            }
+        }
+    }
+
+    out_pairs.sort();
+    out_pairs.dedup();
+    Ok(out_pairs)
+}
+
 fn truthy_connected(v: &Value) -> bool {
     match v {
         Value::Bool(b) => *b,
@@ -123,6 +186,9 @@ pub fn connected_device_names() -> Result<Vec<String>, String> {
     let root: Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
     let mut pairs: Vec<(String, String)> = Vec::new();
     walk(&root, &mut pairs);
+    if pairs.is_empty() {
+        pairs = connected_from_system_profiler_text()?;
+    }
 
     let mut names: Vec<String> = pairs.into_iter().map(|(n, _)| n).collect();
     names.sort();
@@ -135,6 +201,9 @@ pub fn connected_devices_detailed() -> Result<Vec<super::DetailedBluetoothDevice
     let root: Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
     let mut pairs: Vec<(String, String)> = Vec::new();
     walk(&root, &mut pairs);
+    if pairs.is_empty() {
+        pairs = connected_from_system_profiler_text()?;
+    }
 
     let mut results: Vec<super::DetailedBluetoothDevice> = Vec::new();
     for (device_name, device_mac_address) in pairs {

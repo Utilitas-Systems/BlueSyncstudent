@@ -88,7 +88,7 @@ export const useTeacherBroadcast = ({
     });
 
     // Listen for device_list events (full list request)
-    channel.on('broadcast', { event: 'device_list' }, (payload: any) => {
+    devicesChannel.on('broadcast', { event: 'device_list' }, (payload: any) => {
       console.log('[teacher-devices] Received device_list:', payload);
       const { student_id, devices } = payload.payload || {};
       
