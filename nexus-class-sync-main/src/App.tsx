@@ -146,6 +146,7 @@ const App = () => {
   useEffect(() => {
     const checkClassId = () => {
       const savedClassId = sessionStorage.getItem('current_class_id');
+      const savedClass = sessionStorage.getItem('student_class');
       const savedUser = sessionStorage.getItem('student_user');
       
       if (savedUser) {
@@ -159,8 +160,17 @@ const App = () => {
         setStudentId(null);
       }
       
+      // Audio/device broadcasting must stay bound to the same class UUID the dashboard/teacher uses.
+      // Prefer explicit current_class_id; fall back to persisted student_class.id.
       if (savedClassId) {
         setClassId(savedClassId);
+      } else if (savedClass) {
+        try {
+          const c = JSON.parse(savedClass) as { id?: string };
+          setClassId(c?.id || null);
+        } catch {
+          setClassId(null);
+        }
       } else {
         setClassId(null);
       }

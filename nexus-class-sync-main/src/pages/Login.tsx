@@ -179,9 +179,6 @@ const Login = () => {
             <h1 className="text-4xl font-bold text-nexus-secondary mb-2">
               {APP_DISPLAY_NAME}
             </h1>
-            <p className="text-nexus-accent font-medium">
-              Classroom device sharing
-            </p>
           </div>
         </div>
 
