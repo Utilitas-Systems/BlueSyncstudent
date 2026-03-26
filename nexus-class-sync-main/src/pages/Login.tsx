@@ -187,7 +187,7 @@ const Login = () => {
           <CardHeader className="text-center">
             <CardTitle className="text-xl text-nexus-secondary">Sign in</CardTitle>
             <CardDescription className="text-muted-foreground">
-              Enter your credentials to access the classroom
+              Enter your credentials to sign in
             </CardDescription>
           </CardHeader>
           <CardContent>

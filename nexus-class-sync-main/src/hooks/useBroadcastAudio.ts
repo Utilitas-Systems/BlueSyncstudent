@@ -32,6 +32,31 @@ type BroadcastAudioObjectParams = {
   enabled?: boolean;
 };
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function resolveClassId(inputClassId?: string): string | null {
+  const fromArg = (inputClassId || '').trim();
+  if (UUID_RE.test(fromArg)) return fromArg;
+  try {
+    const explicit = (sessionStorage.getItem('current_class_id') || '').trim();
+    if (UUID_RE.test(explicit)) return explicit;
+  } catch {
+    // ignore
+  }
+  try {
+    const raw = sessionStorage.getItem('student_class');
+    if (raw) {
+      const parsed = JSON.parse(raw) as { id?: string };
+      const id = (parsed?.id || '').trim();
+      if (UUID_RE.test(id)) return id;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 function isBroadcastAudioObjectParams(
   arg: unknown
 ): arg is BroadcastAudioObjectParams {
@@ -103,24 +128,49 @@ export function useBroadcastAudio(
       return;
     }
 
+    const effectiveClassId = resolveClassId(classId);
     subscribedRef.current = false;
-    if (classId) {
-      const channelName = `class_${classId}_audio`;
+    if (effectiveClassId) {
+      const channelName = `class_${effectiveClassId}_audio`;
       const channel = supabase.channel(channelName, { config: { broadcast: { self: true } } });
       chanRef.current = channel;
       channel.on('broadcast', { event: 'audio_level' }, () => {});
       channel.subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           subscribedRef.current = true;
-          console.log('[useBroadcastAudio] Subscribed', { channel: channelName, classId, studentId });
+          console.log('[useBroadcastAudio] Subscribed', {
+            channel: channelName,
+            classId: effectiveClassId,
+            studentId
+          });
         } else {
-          console.log('[useBroadcastAudio] Channel status', { channel: channelName, status, classId, studentId });
+          console.log('[useBroadcastAudio] Channel status', {
+            channel: channelName,
+            status,
+            classId: effectiveClassId,
+            studentId
+          });
         }
+      });
+    } else {
+      console.warn('[useBroadcastAudio] No valid classId found for audio broadcast', {
+        classIdFromHook: classId,
+        studentId
       });
     }
 
     const sendPayload = async (audioLevel: number, isTalking: boolean) => {
-      if (!chanRef.current || !classId || !subscribedRef.current) return;
+      const effectiveClassId = resolveClassId(classId);
+      if (!chanRef.current || !effectiveClassId || !subscribedRef.current) {
+        console.warn('[useBroadcastAudio] Skip send; channel not ready', {
+          hasChannel: !!chanRef.current,
+          subscribed: subscribedRef.current,
+          classId: effectiveClassId,
+          studentId,
+          isTalking
+        });
+        return;
+      }
       const timestamp = new Date().toISOString();
       try {
         await chanRef.current.send({
@@ -135,7 +185,7 @@ export function useBroadcastAudio(
         });
         lastBroadcastTimeRef.current = Date.now();
         console.log('[useBroadcastAudio] Sent audio_level', {
-          classId,
+          classId: effectiveClassId,
           studentId,
           isTalking,
           audioLevel,
@@ -181,7 +231,7 @@ export function useBroadcastAudio(
         if (lastLoggedStateRef.current !== isPlaying) {
           lastLoggedStateRef.current = isPlaying;
           console.log('[useBroadcastAudio] Playback state changed', {
-            classId,
+            classId: resolveClassId(classId),
             studentId,
             isPlaying,
             levelValue
