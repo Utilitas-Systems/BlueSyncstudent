@@ -132,26 +132,38 @@ export function useBroadcastAudio(
       }
     };
 
-    const pctFromPeak = (peak: number) => {
-      const rawPct = (Number(peak) || 0) * 100;
-      const boosted = Math.min(100, rawPct * 3.5);
-      return Math.max(0, Math.round(boosted));
-    };
-
     checkIntervalRef.current = window.setInterval(async () => {
       try {
-        let pct = 0;
+        let isPlaying = false;
+        let levelValue = 0;
         let details: PeakDetails | undefined;
         try {
-          const d = await invoke<PeakDetails>('get_system_audio_peak_detailed');
-          details = d;
-          pct = pctFromPeak(d.peak);
+          isPlaying = await invoke<boolean>('check_audio_playback');
+          levelValue = isPlaying ? 50 : 0;
         } catch {
-          const peak = await invoke<number>('get_system_audio_peak');
-          pct = pctFromPeak(peak);
+          // Fallback for older builds that do not expose `check_audio_playback`.
+          try {
+            const d = await invoke<PeakDetails>('get_system_audio_peak_detailed');
+            details = d;
+            isPlaying = (Number(d.peak) || 0) >= 0.01;
+            levelValue = isPlaying ? 50 : 0;
+          } catch {
+            const peak = await invoke<number>('get_system_audio_peak');
+            isPlaying = (Number(peak) || 0) >= 0.01;
+            levelValue = isPlaying ? 50 : 0;
+          }
         }
 
-        setLevel(pct);
+        // Fetch details only for macOS setup diagnostics if not already retrieved above.
+        try {
+          if (!details) {
+            details = await invoke<PeakDetails>('get_system_audio_peak_detailed');
+          }
+        } catch {
+          // Non-fatal; diagnostics are optional.
+        }
+
+        setLevel(levelValue);
 
         if (details?.isMacos && details.macosMeterError) {
           const err = String(details.macosMeterError);
@@ -164,7 +176,7 @@ export function useBroadcastAudio(
           if (details?.isMacos) {
             lastMeterErrorShownRef.current = null;
           }
-          if (details?.isMacos && pct === 0) {
+          if (details?.isMacos && !isPlaying) {
             macSilentStreakRef.current += 1;
             if (
               macSilentStreakRef.current >= 6 &&
@@ -179,7 +191,7 @@ export function useBroadcastAudio(
           }
         }
 
-        const isTalking = pct > 20;
+        const isTalking = isPlaying;
         const now = Date.now();
         const timeSinceLastBroadcast = now - lastBroadcastTimeRef.current;
         const stateChanged = lastIsTalkingRef.current !== null && lastIsTalkingRef.current !== isTalking;
@@ -187,11 +199,11 @@ export function useBroadcastAudio(
 
         const shouldBroadcast = stateChanged || heartbeatDue;
         if (shouldBroadcast) {
-          await sendPayload(pct, isTalking);
+          await sendPayload(levelValue, isTalking);
           lastIsTalkingRef.current = isTalking;
         } else if (lastIsTalkingRef.current === null) {
           lastIsTalkingRef.current = isTalking;
-          await sendPayload(pct, isTalking);
+          await sendPayload(levelValue, isTalking);
         }
       } catch (error) {
         console.error('[useBroadcastAudio] Error getting audio peak:', error);

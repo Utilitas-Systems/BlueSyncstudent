@@ -13,6 +13,7 @@ pub fn run() {
             get_current_bluetooth_devices_detailed,
             get_bluetooth_devices,
             get_system_audio_peak,
+            check_audio_playback,
             get_system_audio_peak_detailed
         ])
         .plugin(tauri_plugin_shell::init())
@@ -330,6 +331,14 @@ fn get_system_audio_peak() -> Result<f32, String> {
     {
         Ok(0.0)
     }
+}
+
+/// Boolean playback state used by teacher UI (`is_talking`).
+#[tauri::command]
+fn check_audio_playback() -> Result<bool, String> {
+    let peak = get_system_audio_peak()?;
+    // Keep threshold conservative so quiet playback still counts as active.
+    Ok(peak >= 0.01)
 }
 
 #[derive(serde::Serialize)]

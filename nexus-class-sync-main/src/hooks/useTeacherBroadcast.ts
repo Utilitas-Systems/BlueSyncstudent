@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface BluetoothDevice {
@@ -41,7 +41,7 @@ export const useTeacherBroadcast = ({
   const listCallbackRef = useRef(onDeviceList);
   const audioCallbackRef = useRef(onAudioLevel);
   const [studentDevices, setStudentDevices] = useState<Map<string, BluetoothDevice[]>>(new Map());
-  const [studentAudio, setStudentAudio] = useState<Map<string, { audioLevel: number; lastUpdate: string }>>(new Map());
+  const [studentAudio, setStudentAudio] = useState<Map<string, { audioLevel: number; isTalking: boolean; lastUpdate: string }>>(new Map());
 
   callbackRef.current = onDeviceUpdate;
   listCallbackRef.current = onDeviceList;
@@ -127,6 +127,7 @@ export const useTeacherBroadcast = ({
           const next = new Map(prev);
           next.set(student_id, {
             audioLevel: typeof audio_level === 'number' ? audio_level : 0,
+            isTalking: !!is_talking,
             lastUpdate: timestamp
           });
           return next;
@@ -158,10 +159,35 @@ export const useTeacherBroadcast = ({
     };
   }, [classId]);
 
+  const playbackSummary = useMemo(() => {
+    const now = Date.now();
+    let activeStudents = 0;
+    let playingStudents = 0;
+    let mostRecentTimestamp: string | null = null;
+    for (const [, a] of studentAudio) {
+      const ageMs = Math.max(0, now - Date.parse(a.lastUpdate));
+      // Ignore stale entries from disconnected tabs.
+      if (ageMs <= 45_000) {
+        activeStudents += 1;
+        if (a.isTalking) playingStudents += 1;
+      }
+      if (!mostRecentTimestamp || a.lastUpdate > mostRecentTimestamp) {
+        mostRecentTimestamp = a.lastUpdate;
+      }
+    }
+    return {
+      activeStudents,
+      playingStudents,
+      silentStudents: Math.max(0, activeStudents - playingStudents),
+      mostRecentTimestamp
+    };
+  }, [studentAudio]);
+
   return {
     isListening: !!(devicesChannelRef.current || audioChannelRef.current),
     studentDevices,
-    studentAudio
+    studentAudio,
+    playbackSummary
   };
 };
 
