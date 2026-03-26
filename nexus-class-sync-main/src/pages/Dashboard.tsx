@@ -80,6 +80,7 @@ const Dashboard = () => {
   const isShuttingDownRef = useRef(false);
   const reminderRef = useRef<number | null>(null);
   const scanningRef = useRef(false);
+  const lastScanAtRef = useRef(0);
   const devicesRef = useRef<any[]>([]);
   const startedPresenceRef = useRef(false);
   const alertAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -180,6 +181,15 @@ const Dashboard = () => {
 
   const getConnectedBluetoothDevices = async () => {
     if (isShuttingDownRef.current || scanningRef.current) return;
+    const now = Date.now();
+    if (now - lastScanAtRef.current < 5000) {
+      toast({
+        title: "Scan in progress",
+        description: "Please wait a few seconds before scanning again.",
+      });
+      return;
+    }
+    lastScanAtRef.current = now;
     scanningRef.current = true;
     setIsScanning(true);
     try {

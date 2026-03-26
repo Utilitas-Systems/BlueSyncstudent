@@ -72,6 +72,7 @@ export function useBroadcastAudio(
   const lastIsTalkingRef = useRef<boolean | null>(null);
   const lastBroadcastTimeRef = useRef<number>(0);
   const subscribedRef = useRef(false);
+  const lastLoggedStateRef = useRef<boolean | null>(null);
   const lastMeterErrorShownRef = useRef<string | null>(null);
   const macSilentStreakRef = useRef(0);
 
@@ -104,11 +105,17 @@ export function useBroadcastAudio(
 
     subscribedRef.current = false;
     if (classId) {
-      const channel = supabase.channel(`class_${classId}_audio`, { config: { broadcast: { self: true } } });
+      const channelName = `class_${classId}_audio`;
+      const channel = supabase.channel(channelName, { config: { broadcast: { self: true } } });
       chanRef.current = channel;
       channel.on('broadcast', { event: 'audio_level' }, () => {});
       channel.subscribe((status) => {
-        if (status === 'SUBSCRIBED') subscribedRef.current = true;
+        if (status === 'SUBSCRIBED') {
+          subscribedRef.current = true;
+          console.log('[useBroadcastAudio] Subscribed', { channel: channelName, classId, studentId });
+        } else {
+          console.log('[useBroadcastAudio] Channel status', { channel: channelName, status, classId, studentId });
+        }
       });
     }
 
@@ -127,6 +134,13 @@ export function useBroadcastAudio(
           },
         });
         lastBroadcastTimeRef.current = Date.now();
+        console.log('[useBroadcastAudio] Sent audio_level', {
+          classId,
+          studentId,
+          isTalking,
+          audioLevel,
+          reason: lastIsTalkingRef.current === null ? 'initial' : (lastIsTalkingRef.current !== isTalking ? 'state-change' : 'heartbeat')
+        });
       } catch (e) {
         console.error('[useBroadcastAudio] Error broadcasting:', e);
       }
@@ -164,6 +178,15 @@ export function useBroadcastAudio(
         }
 
         setLevel(levelValue);
+        if (lastLoggedStateRef.current !== isPlaying) {
+          lastLoggedStateRef.current = isPlaying;
+          console.log('[useBroadcastAudio] Playback state changed', {
+            classId,
+            studentId,
+            isPlaying,
+            levelValue
+          });
+        }
 
         if (details?.isMacos && details.macosMeterError) {
           const err = String(details.macosMeterError);
@@ -243,6 +266,7 @@ export function useBroadcastAudio(
       }
       if (chanRef.current) {
         try {
+          console.log('[useBroadcastAudio] Unsubscribe audio channel', { classId, studentId });
           chanRef.current.unsubscribe();
         } catch {
           /* ignore */
