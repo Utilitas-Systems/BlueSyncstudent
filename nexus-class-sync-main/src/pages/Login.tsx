@@ -279,10 +279,6 @@ const Login = () => {
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="text-center text-sm text-nexus-accent">
-          <p>Live Bluetooth tracking</p>
-        </div>
       </div>
     </div>
   );

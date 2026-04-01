@@ -96,6 +96,7 @@ export function useBroadcastAudio(
   const chanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const lastIsTalkingRef = useRef<boolean | null>(null);
   const lastBroadcastTimeRef = useRef<number>(0);
+  const lastAudioDetectedAtRef = useRef<number>(0);
   const subscribedRef = useRef(false);
   const lastLoggedStateRef = useRef<boolean | null>(null);
   const lastMeterErrorShownRef = useRef<string | null>(null);
@@ -161,7 +162,7 @@ export function useBroadcastAudio(
 
     const sendPayload = async (audioLevel: number, isTalking: boolean) => {
       const effectiveClassId = resolveClassId(classId);
-      if (!chanRef.current || !effectiveClassId || !subscribedRef.current) {
+      if (!chanRef.current || !effectiveClassId) {
         console.warn('[useBroadcastAudio] Skip send; channel not ready', {
           hasChannel: !!chanRef.current,
           subscribed: subscribedRef.current,
@@ -227,13 +228,22 @@ export function useBroadcastAudio(
           // Non-fatal; diagnostics are optional.
         }
 
+        const nowMs = Date.now();
+        if (isPlaying) {
+          lastAudioDetectedAtRef.current = nowMs;
+        }
+        const talkingWithHold =
+          isPlaying || (nowMs - lastAudioDetectedAtRef.current) <= 10_000;
+        levelValue = talkingWithHold ? 50 : 0;
+
         setLevel(levelValue);
-        if (lastLoggedStateRef.current !== isPlaying) {
-          lastLoggedStateRef.current = isPlaying;
+        if (lastLoggedStateRef.current !== talkingWithHold) {
+          lastLoggedStateRef.current = talkingWithHold;
           console.log('[useBroadcastAudio] Playback state changed', {
             classId: resolveClassId(classId),
             studentId,
             isPlaying,
+            talkingWithHold,
             levelValue
           });
         }
@@ -249,7 +259,7 @@ export function useBroadcastAudio(
           if (details?.isMacos) {
             lastMeterErrorShownRef.current = null;
           }
-          if (details?.isMacos && !isPlaying) {
+          if (details?.isMacos && !talkingWithHold) {
             macSilentStreakRef.current += 1;
             if (
               macSilentStreakRef.current >= 6 &&
@@ -264,7 +274,7 @@ export function useBroadcastAudio(
           }
         }
 
-        const isTalking = isPlaying;
+        const isTalking = talkingWithHold;
         const now = Date.now();
         const timeSinceLastBroadcast = now - lastBroadcastTimeRef.current;
         const stateChanged = lastIsTalkingRef.current !== null && lastIsTalkingRef.current !== isTalking;
@@ -300,7 +310,8 @@ export function useBroadcastAudio(
         window.clearInterval(checkIntervalRef.current);
         checkIntervalRef.current = null;
       }
-      if (chanRef.current && classId && studentId) {
+      const effectiveClassId = resolveClassId(classId);
+      if (chanRef.current && effectiveClassId && studentId) {
         chanRef.current
           .send({
             type: 'broadcast',
@@ -330,7 +341,7 @@ export function useBroadcastAudio(
     if (isObjectParams) {
       return {
         audioLevel: level,
-        isListening: !!classId && !!enabled,
+        isListening: !!resolveClassId(classId) && !!enabled,
         macAudioHelpOpen: macHelpOpen,
         macAudioHelpTitle: macHelpTitle,
         macAudioHelpMessage: macHelpMessage,
