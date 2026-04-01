@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -109,9 +110,14 @@ const App = () => {
         if (cancelled) return;
         if (loadingId !== undefined) toast.dismiss(loadingId);
         loadingId = undefined;
-        toast.success(`Update installed (v${pendingUpdate.version}). Restart the app to finish.`, {
-          duration: 12_000,
-        });
+        try {
+          toast.success(`Update installed (v${pendingUpdate.version}). Restarting…`, { duration: 4000 });
+          await relaunch();
+        } catch {
+          toast.success(`Update installed (v${pendingUpdate.version}). Restart the app to finish.`, {
+            duration: 12_000,
+          });
+        }
       } catch (error) {
         console.error("Auto-update install failed:", error);
         if (loadingId !== undefined) toast.dismiss(loadingId);

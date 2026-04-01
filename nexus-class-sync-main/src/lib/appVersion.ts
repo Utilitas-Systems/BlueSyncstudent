@@ -11,4 +11,4 @@ export const UPDATE_FAILED_WEBSITE_MESSAGE =
  * Login footer label (marketing style).
  * `tauri.conf.json` → `version` must stay strict SemVer (e.g. 1.1.0); use this string for marketing labels like 1.01.00.
  */
-export const APP_VERSION = "1.1.01";
+export const APP_VERSION = "1.1.02";

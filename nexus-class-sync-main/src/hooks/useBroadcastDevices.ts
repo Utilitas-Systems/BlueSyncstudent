@@ -52,14 +52,45 @@ export function useBroadcastDevices(
       connection_status: d.isConnected ? 'connected' : 'disconnected',
     }));
     try {
-      const { error } = await supabase
+      if (rows.length === 0) {
+        const { error } = await supabase
+          .from('student_devices')
+          .delete()
+          .eq('student_id', studentIdForWrite);
+        if (error) {
+          console.error('[useBroadcastDevices] Error clearing student_devices:', error);
+        }
+        return;
+      }
+      const { error: upsertError } = await supabase
         .from('student_devices')
         .upsert(rows, { onConflict: 'student_id,device_name' });
-      if (error) {
-        console.error('[useBroadcastDevices] Error upserting student_devices:', error);
-      } else {
-        try { console.log('[Student] devices upserted', rows.length); } catch {}
+      if (upsertError) {
+        console.error('[useBroadcastDevices] Error upserting student_devices:', upsertError);
+        return;
       }
+      const keep = new Set(rows.map((r) => r.device_name));
+      const { data: existingRows, error: selError } = await supabase
+        .from('student_devices')
+        .select('id, device_name')
+        .eq('student_id', studentIdForWrite);
+      if (selError) {
+        console.error('[useBroadcastDevices] Error listing student_devices:', selError);
+        return;
+      }
+      const staleIds = (existingRows || [])
+        .filter((r) => r.device_name && !keep.has(r.device_name))
+        .map((r) => r.id);
+      if (staleIds.length > 0) {
+        const { error: delError } = await supabase
+          .from('student_devices')
+          .delete()
+          .in('id', staleIds);
+        if (delError) {
+          console.error('[useBroadcastDevices] Error removing stale student_devices:', delError);
+        }
+      }
+      try { console.log('[Student] devices upserted', rows.length); } catch {}
     } catch (e) {
       console.error('[useBroadcastDevices] Unexpected upsert error:', e);
     }

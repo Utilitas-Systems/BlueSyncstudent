@@ -179,17 +179,14 @@ const Dashboard = () => {
 
   const onlineBadge = (presenceOnline || !!user?.is_online);
 
-  const getConnectedBluetoothDevices = async () => {
+  const getConnectedBluetoothDevices = async (opts?: { fromPoll?: boolean }) => {
     if (isShuttingDownRef.current || scanningRef.current) return;
     const now = Date.now();
-    if (now - lastScanAtRef.current < 5000) {
-      toast({
-        title: "Scan in progress",
-        description: "Please wait a few seconds before scanning again.",
-      });
-      return;
+    // Manual scans only: throttle rapid clicks. Background poll bypasses so it never fights this window or spams toasts.
+    if (!opts?.fromPoll) {
+      if (now - lastScanAtRef.current < 5000) return;
+      lastScanAtRef.current = now;
     }
-    lastScanAtRef.current = now;
     scanningRef.current = true;
     setIsScanning(true);
     try {
@@ -538,7 +535,7 @@ const Dashboard = () => {
     if (!presenceOnline || !classData || !hasValidData) return;
     const isTauri = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
     if (!isTauri) return;
-    const poll = () => { getBtRef.current(); };
+    const poll = () => { getBtRef.current({ fromPoll: true }); };
     poll(); // initial
     const interval = window.setInterval(poll, 15000);
     return () => window.clearInterval(interval);
