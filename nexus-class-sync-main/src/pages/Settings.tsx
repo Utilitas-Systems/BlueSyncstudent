@@ -13,6 +13,7 @@ import {
   BluetoothOff,
   Volume2,
 } from "lucide-react";
+import { APP_DISPLAY_NAME } from "@/lib/appVersion";
 import { Slider } from "@/components/ui/slider";
 
 const Settings = () => {
@@ -54,20 +55,32 @@ const Settings = () => {
 
   return (
     <div className="min-h-screen p-4 space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <Button
-            variant="nexus-ghost"
-            onClick={() => navigate('/dashboard')}
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Dashboard
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold text-nexus-secondary">Settings</h1>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center space-x-3 min-w-0">
+          <div className="p-2 rounded-full bg-nexus-primary/10 flex items-center justify-center shrink-0">
+            <img
+              src="/bluesync-student-logo.svg"
+              alt={APP_DISPLAY_NAME}
+              className="h-8 w-8 object-contain"
+              width={32}
+              height={32}
+            />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold text-nexus-secondary truncate">Settings</h1>
             <p className="text-sm text-muted-foreground">Device sharing and notification preferences</p>
           </div>
         </div>
+        <Button
+          variant="nexus-ghost"
+          size="icon"
+          onClick={() => navigate('/dashboard')}
+          title="Back to dashboard"
+          aria-label="Back to dashboard"
+          className="shrink-0"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
       </div>
 
       <Card>

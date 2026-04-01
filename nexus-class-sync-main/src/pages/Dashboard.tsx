@@ -11,14 +11,12 @@ import { useBroadcastDevices } from "@/hooks/useBroadcastDevices";
 import { useBroadcastPresence } from "@/hooks/useBroadcastPresence";
 import { useStudentAttentionListener } from "@/hooks/useStudentAttentionListener";
 import { supabase } from "@/integrations/supabase/client";
-import nukeSoundUrl from "@/assets/nuke-sound.mp3";
+import attentionAlertSoundUrl from "@/assets/attention-alert.mp3";
 import { APP_DISPLAY_NAME } from "@/lib/appVersion";
 import { invoke } from "@tauri-apps/api/core";
 import { Progress } from "@/components/ui/progress";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { 
-  Wifi, 
-  Shield, 
   Users, 
   Settings, 
   LogOut, 
@@ -95,7 +93,7 @@ const Dashboard = () => {
       if (audioUnlockedRef.current) return;
       audioUnlockedRef.current = true;
       try {
-        const audio = new Audio(nukeSoundUrl);
+        const audio = new Audio(attentionAlertSoundUrl);
         audio.volume = 1;
         alertAudioRef.current = audio;
         audio.play().then(() => audio.pause()).catch(() => {});
@@ -155,7 +153,7 @@ const Dashboard = () => {
         const s = localStorage.getItem('chimeVolume');
         return s ? Math.max(0.3, parseFloat(s)) : 0.5;
       })();
-      const audio = alertAudioRef.current || new Audio(nukeSoundUrl);
+      const audio = alertAudioRef.current || new Audio(attentionAlertSoundUrl);
       if (!alertAudioRef.current) alertAudioRef.current = audio;
       audio.volume = vol;
       audio.currentTime = 0;
@@ -769,8 +767,14 @@ const Dashboard = () => {
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">
-            <div className="p-2 rounded-full bg-nexus-primary/10">
-              <Wifi className="h-6 w-6 text-nexus-primary" />
+            <div className="p-2 rounded-full bg-nexus-primary/10 flex items-center justify-center shrink-0">
+              <img
+                src="/bluesync-student-logo.svg"
+                alt={APP_DISPLAY_NAME}
+                className="h-8 w-8 object-contain"
+                width={32}
+                height={32}
+              />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-nexus-secondary">{APP_DISPLAY_NAME}</h1>
@@ -783,14 +787,6 @@ const Dashboard = () => {
           <Badge variant={onlineBadge ? "default" : "secondary"}>
             {onlineBadge ? "Online" : "Offline"}
           </Badge>
-          <Button
-            variant="nexus-ghost"
-            size="sm"
-            onClick={() => navigate('/manage-classes')}
-          >
-            <Users className="h-4 w-4 mr-2" />
-            Manage Classes
-          </Button>
           <Button
             variant="nexus-outline"
             size="sm"
@@ -806,8 +802,15 @@ const Dashboard = () => {
       <Card>
         <CardContent className="pt-6">
           <div className="flex items-center space-x-4">
-            <div className="p-3 rounded-full bg-nexus-primary/10">
-              <Shield className="h-8 w-8 text-nexus-primary" />
+            <div className="p-3 rounded-full bg-nexus-primary/10 flex items-center justify-center">
+              <img
+                src="/bluesync-student-logo.svg"
+                alt=""
+                className="h-8 w-8 object-contain"
+                width={32}
+                height={32}
+                aria-hidden
+              />
             </div>
             <div>
               <h2 className="text-xl font-semibold">Welcome, {user.full_name || user.username}</h2>
@@ -863,7 +866,7 @@ const Dashboard = () => {
               <span>Quick Actions</span>
             </CardTitle>
             <CardDescription>
-              Manage your classroom experience
+              Shortcuts for classes, settings, and devices
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">

@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Settings,
 } from "lucide-react";
+import { APP_DISPLAY_NAME } from "@/lib/appVersion";
 
 interface StudentUser {
   id: string;
@@ -171,22 +172,33 @@ const ManageClasses = () => {
 
   return (
     <div className="min-h-screen p-4 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <Button
-            variant="nexus-ghost"
-            onClick={() => navigate('/dashboard')}
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Dashboard
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold text-nexus-secondary">Manage Classes</h1>
-            <p className="text-sm text-muted-foreground">Classes you've joined in this school</p>
+      {/* Header — logo + title (entry to this screen is “Manage Classes” on the dashboard only) */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center space-x-3 min-w-0">
+          <div className="p-2 rounded-full bg-nexus-primary/10 flex items-center justify-center shrink-0">
+            <img
+              src="/bluesync-student-logo.svg"
+              alt={APP_DISPLAY_NAME}
+              className="h-8 w-8 object-contain"
+              width={32}
+              height={32}
+            />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold text-nexus-secondary truncate">Your classes</h1>
+            <p className="text-sm text-muted-foreground">Classes you&apos;ve joined in this school</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="nexus-ghost"
+            size="icon"
+            onClick={() => navigate('/dashboard')}
+            title="Back to dashboard"
+            aria-label="Back to dashboard"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
           <Button variant="nexus-outline" size="sm" onClick={() => navigate('/settings')}>
             <Settings className="h-4 w-4 mr-2" />
             Settings
