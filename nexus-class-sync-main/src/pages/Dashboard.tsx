@@ -190,11 +190,14 @@ const Dashboard = () => {
     try {
       const isTauri = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
       if (!isTauri) {
-        toast({
-          title: "Desktop App Required",
-          description: "Bluetooth scanning requires the desktop app (Windows or Mac).",
-          variant: "destructive",
-        });
+        // For background polling we don't want repeated toasts.
+        if (!opts?.fromPoll) {
+          toast({
+            title: "Desktop App Required",
+            description: "Bluetooth scanning requires the desktop app (Windows or Mac).",
+            variant: "destructive",
+          });
+        }
         return;
       }
 
@@ -250,11 +253,14 @@ const Dashboard = () => {
       // no toast
     } catch (error) {
       console.error('Error getting Bluetooth devices via Tauri:', error);
-      toast({
-        title: "Scan Error",
-        description: "Unable to read Bluetooth devices.",
-        variant: "destructive",
-      });
+      // For background polling we don't want repeated toasts.
+      if (!opts?.fromPoll) {
+        toast({
+          title: "Scan Error",
+          description: "Unable to read Bluetooth devices.",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsScanning(false);
       scanningRef.current = false;
@@ -535,7 +541,7 @@ const Dashboard = () => {
     if (!isTauri) return;
     const poll = () => { getBtRef.current({ fromPoll: true }); };
     poll(); // initial
-    const interval = window.setInterval(poll, 15000);
+    const interval = window.setInterval(poll, 90000);
     return () => window.clearInterval(interval);
   }, [presenceOnline, classData?.id, hasValidData]);
 
