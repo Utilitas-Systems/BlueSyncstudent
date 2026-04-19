@@ -4,6 +4,9 @@
  * - release/macos   (installers + mac updater archives/signatures)
  * - release/updates (latest.json + all updater payloads/signatures for website upload)
  *
+ * Windows: with `bundle.createUpdaterArtifacts: "v1Compatible"` you get `*.nsis.zip` + `*.nsis.zip.sig`
+ * for static `latest.json` (Tauri v2 default `true` uses `*-setup.exe` + `*.exe.sig` instead).
+ *
  * Run after `npm run tauri:build` on each platform. If you run it multiple times
  * (e.g. once on Windows + once on macOS), it keeps adding missing artifacts.
  */

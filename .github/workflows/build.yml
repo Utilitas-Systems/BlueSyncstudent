@@ -95,7 +95,9 @@ jobs:
         run: |
           node <<'NODE'
           const fs = require('fs');
-          const raw = process.env.KEY ? String(process.env.KEY).trim() : '';
+          let raw = process.env.KEY ? String(process.env.KEY).trim() : '';
+          raw = raw.replace(/^\uFEFF/, '');
+          if (!raw.includes('\n') && raw.includes('\\n')) raw = raw.replace(/\\n/g, '\n');
           const hasPublicMarker = /minisign public key/i.test(raw);
           const hasSecretMarker =
             /minisign encrypted secret key/i.test(raw) ||
@@ -115,12 +117,11 @@ jobs:
             }
             j.bundle = j.bundle || {};
             j.bundle.createUpdaterArtifacts = false;
-            if (j.plugins && j.plugins.updater) j.plugins.updater.active = false;
             fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
           } else {
             console.log('Valid minisign private key detected; updater artifacts will be generated.');
           }
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_signing_key=${looksValidPrivateKey}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_signing_key=${looksValidPrivateKey ? 'true' : 'false'}\n`);
           NODE
 
       # Multiline secrets in YAML ${{ }} often break on macOS runners; append to GITHUB_ENV instead.
@@ -193,6 +194,12 @@ jobs:
           }
           console.log(`Collected ${copied} files`);
           NODE
+
+      - name: List bundle output (updater / NSIS debug)
+        shell: bash
+        run: |
+          B="src-tauri/target/release/bundle"
+          if [ -d "$B" ]; then find "$B" -type f | sort; else echo "No bundle dir at $B"; fi
 
       - name: Verify updater artifacts exist
         if: steps.configure_updater.outputs.has_signing_key == 'true'
