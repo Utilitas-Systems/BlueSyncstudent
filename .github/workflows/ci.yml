@@ -1,0 +1,54 @@
+# Verifies the app on every push/PR (no release, no signing secrets).
+# Release builds stay in build.yml on main/master.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+defaults:
+  run:
+    working-directory: nexus-class-sync-main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # https://v2.tauri.app/start/prerequisites/#linux — needed for `cargo check` / tauri-build on Ubuntu
+      - name: Install Linux system dependencies (Tauri)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Setup Node
+        uses: actions/setup-node@v6.3.0
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: nexus-class-sync-main/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Frontend build
+        run: npm run build
+
+      - name: Rust check (Tauri backend)
+        run: cargo check --manifest-path src-tauri/Cargo.toml
