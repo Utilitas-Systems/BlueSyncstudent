@@ -23,13 +23,13 @@ if (!wantsUpdaterBundles) {
 }
 
 let raw = (process.env.TAURI_SIGNING_PRIVATE_KEY || "").trim();
-raw = raw.replace(/^\uFEFF/, "");
+raw = raw.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 if (!raw.includes("\n") && raw.includes("\\n")) raw = raw.replace(/\\n/g, "\n");
 
 const hasPublicMarker = /minisign public key/i.test(raw);
 const hasSecretMarker =
   /minisign encrypted secret key/i.test(raw) || /minisign secret key/i.test(raw);
-const looksValid = raw.length >= 80 && hasSecretMarker && !hasPublicMarker;
+const looksValid = raw.length >= 60 && hasSecretMarker && !hasPublicMarker;
 
 const requireFlag = process.argv.includes("--require");
 

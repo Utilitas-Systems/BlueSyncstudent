@@ -96,13 +96,14 @@ jobs:
           node <<'NODE'
           const fs = require('fs');
           let raw = process.env.KEY ? String(process.env.KEY).trim() : '';
-          raw = raw.replace(/^\uFEFF/, '');
+          raw = raw.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
           if (!raw.includes('\n') && raw.includes('\\n')) raw = raw.replace(/\\n/g, '\n');
           const hasPublicMarker = /minisign public key/i.test(raw);
           const hasSecretMarker =
             /minisign encrypted secret key/i.test(raw) ||
             /minisign secret key/i.test(raw);
-          const looksValidPrivateKey = raw.length >= 80 && hasSecretMarker && !hasPublicMarker;
+          const looksValidPrivateKey = raw.length >= 60 && hasSecretMarker && !hasPublicMarker;
+          console.log(`::notice::Signing key probe: length=${raw.length} secretMarker=${hasSecretMarker} publicMarker=${hasPublicMarker}`);
           const p = 'src-tauri/tauri.conf.json';
           const j = JSON.parse(fs.readFileSync(p, 'utf8'));
           if (!looksValidPrivateKey) {
@@ -123,6 +124,13 @@ jobs:
           }
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_signing_key=${looksValidPrivateKey ? 'true' : 'false'}\n`);
           NODE
+
+      - name: Signing detection result
+        run: |
+          echo "has_signing_key=${{ steps.configure_updater.outputs.has_signing_key }}"
+          if [ "${{ steps.configure_updater.outputs.has_signing_key }}" != "true" ]; then
+            echo "::warning::Updater archives will NOT be produced — fix TAURI_SIGNING_PRIVATE_KEY (full .key file, not .pub) or see logs above."
+          fi
 
       # Encrypted .key files also need repo secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD (plain text).
       # Multiline secrets in YAML ${{ }} often break on macOS runners; append to GITHUB_ENV instead.
@@ -167,7 +175,19 @@ jobs:
           const fs = require('fs');
           const path = require('path');
           const root = process.cwd();
-          const bundleRoot = path.join(root, 'src-tauri', 'target', 'release', 'bundle');
+          function discoverBundleRoots() {
+            const targetDir = path.join(root, 'src-tauri', 'target');
+            const roots = new Set();
+            const legacy = path.join(targetDir, 'release', 'bundle');
+            if (fs.existsSync(legacy)) roots.add(legacy);
+            if (fs.existsSync(targetDir)) {
+              for (const name of fs.readdirSync(targetDir)) {
+                const b = path.join(targetDir, name, 'release', 'bundle');
+                if (fs.existsSync(b)) roots.add(b);
+              }
+            }
+            return [...roots];
+          }
           function walk(dir) {
             if (!fs.existsSync(dir)) return [];
             const out = [];
@@ -186,21 +206,23 @@ jobs:
             fs.copyFileSync(file, dest);
             return true;
           }
-          const files = walk(bundleRoot);
+          const bundleRoots = discoverBundleRoots();
+          console.log('Bundle roots:', bundleRoots.length ? bundleRoots.join(' | ') : '(none)');
+          let files = [];
+          for (const br of bundleRoots) files.push(...walk(br));
           let copied = 0;
           for (const file of files) {
             copied += copyIf(file, (n) => n === 'latest.json', 'ci-release/updates') ? 1 : 0;
             copied += copyIf(file, (n) => n.endsWith('.nsis.zip') || n.endsWith('.nsis.zip.sig') || n.endsWith('.app.tar.gz') || n.endsWith('.app.tar.gz.sig'), 'ci-release/updates') ? 1 : 0;
             copied += copyIf(file, (n) => n.endsWith('.exe') || n.endsWith('.msi') || n.endsWith('.dmg'), 'ci-release/installers') ? 1 : 0;
           }
-          console.log(`Collected ${copied} files`);
+          console.log(`Collected ${copied} files from ${files.length} bundle file(s)`);
           NODE
 
       - name: List bundle output (updater / NSIS debug)
         shell: bash
         run: |
-          B="src-tauri/target/release/bundle"
-          if [ -d "$B" ]; then find "$B" -type f | sort; else echo "No bundle dir at $B"; fi
+          find src-tauri/target -path "*/release/bundle/*" -type f 2>/dev/null | sort || echo "No bundle files under src-tauri/target"
 
       - name: Verify updater artifacts exist
         if: steps.configure_updater.outputs.has_signing_key == 'true'

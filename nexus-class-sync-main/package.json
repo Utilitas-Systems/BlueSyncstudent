@@ -15,6 +15,7 @@
     "tauri:build:updater": "node scripts/check-updater-signing-env.mjs --require && npm run tauri:build",
     "icons": "node scripts/generate-tauri-icons.mjs",
     "release:collect": "node scripts/collect-release.mjs",
+    "list:bundle": "node scripts/list-bundle-artifacts.mjs",
     "release:build": "npm run icons && npm run build && npm run tauri:build && npm run release:collect"
   },
   "dependencies": {
