@@ -22,6 +22,7 @@ jobs:
     outputs:
       releaseId: ${{ steps.create_release.outputs.id }}
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -224,6 +225,77 @@ jobs:
         shell: bash
         run: |
           find src-tauri/target -path "*/release/bundle/*" -type f 2>/dev/null | sort || echo "No bundle files under src-tauri/target"
+
+      # tauri-action often attaches installers + main bundles but not every updater payload (e.g. .nsis.zip / .sig).
+      - name: Upload updater payloads to GitHub release
+        if: steps.configure_updater.outputs.has_signing_key == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          node <<'NODE'
+          const { execSync } = require('child_process');
+          const fs = require('fs');
+          const path = require('path');
+          const root = process.cwd();
+          const tag = process.env.RELEASE_TAG;
+          const repo = process.env.GITHUB_REPOSITORY;
+          if (!tag || !repo) {
+            console.log('::error::Missing RELEASE_TAG or GITHUB_REPOSITORY');
+            process.exit(1);
+          }
+          function discoverBundleRoots() {
+            const targetDir = path.join(root, 'src-tauri', 'target');
+            const roots = new Set();
+            const legacy = path.join(targetDir, 'release', 'bundle');
+            if (fs.existsSync(legacy)) roots.add(legacy);
+            if (fs.existsSync(targetDir)) {
+              for (const name of fs.readdirSync(targetDir)) {
+                const b = path.join(targetDir, name, 'release', 'bundle');
+                if (fs.existsSync(b)) roots.add(b);
+              }
+            }
+            return [...roots];
+          }
+          function walk(dir) {
+            if (!fs.existsSync(dir)) return [];
+            const out = [];
+            for (const name of fs.readdirSync(dir)) {
+              const p = path.join(dir, name);
+              const st = fs.statSync(p);
+              if (st.isDirectory()) out.push(...walk(p));
+              else out.push(p);
+            }
+            return out;
+          }
+          function wantUpload(base) {
+            const n = base.toLowerCase();
+            return (
+              n.endsWith('.nsis.zip') ||
+              n.endsWith('.nsis.zip.sig') ||
+              n.endsWith('.app.tar.gz.sig')
+            );
+          }
+          const seen = new Set();
+          let n = 0;
+          for (const br of discoverBundleRoots()) {
+            for (const file of walk(br)) {
+              const base = path.basename(file);
+              if (!wantUpload(base)) continue;
+              const key = base;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              console.log(`Uploading to release ${tag}: ${base}`);
+              execSync(`gh release upload "${tag}" "${file}" --clobber -R "${repo}"`, {
+                stdio: 'inherit',
+                env: { ...process.env, GH_TOKEN: process.env.GH_TOKEN },
+              });
+              n++;
+            }
+          }
+          console.log(`Uploaded ${n} updater payload file(s).`);
+          NODE
 
       - name: Verify updater artifacts exist
         if: steps.configure_updater.outputs.has_signing_key == 'true'
