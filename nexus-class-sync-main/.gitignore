@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Tauri updater — never commit minisign private keys
+bluesync-signing.key
+*-signing.key
+*.minisign.key
+
 # Tauri
 src-tauri/target
 src-tauri/Cargo.lock

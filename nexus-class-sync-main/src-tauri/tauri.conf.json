@@ -63,7 +63,7 @@
       "endpoints": [
         "https://bluesync.education/updates/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJBNzgzQUNEQzc0ODg5NDcKUldSSGlVakh6VHA0dXQvMzVQU1V0UFcyR2VTUklKRG4yb0hob2RVSU55S25BRUhYWDViQTUreHkK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkxMEZBMDdBNTBGN0E4NjUKUldSbHFQZFFlcUFQa2JVRk80eFlLbUVpREpWcS91QzdrYzZQdCtCVnZyelh6TU5JSkhZdXhpTVIK"
     },
     "shell": {
       "open": true
