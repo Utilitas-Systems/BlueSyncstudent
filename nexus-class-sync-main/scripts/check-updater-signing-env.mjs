@@ -18,7 +18,7 @@ const mode = conf?.bundle?.createUpdaterArtifacts;
 const wantsUpdaterBundles = mode === true || mode === "v1Compatible";
 
 if (!wantsUpdaterBundles) {
-  console.log("bundle.createUpdaterArtifacts is off ù no updater .zip/.sig bundles.");
+  console.log("bundle.createUpdaterArtifacts is off - no updater .zip/.sig bundles.");
   process.exit(0);
 }
 
@@ -34,7 +34,7 @@ const looksValid = raw.length >= 80 && hasSecretMarker && !hasPublicMarker;
 const requireFlag = process.argv.includes("--require");
 
 if (looksValid) {
-  console.log("TAURI_SIGNING_PRIVATE_KEY looks valid ù Tauri should emit signed updater artifacts.");
+  console.log("TAURI_SIGNING_PRIVATE_KEY looks valid - Tauri should emit signed updater artifacts.");
   process.exit(0);
 }
 
@@ -44,13 +44,13 @@ const ver = conf?.version || "?";
 const msg = `
 No valid TAURI_SIGNING_PRIVATE_KEY in the environment.
 
-Without the minisign *private* key, Tauri cannot sign updates ù you will get the NSIS .exe
+Without the minisign *private* key, Tauri cannot sign updates - you will get the NSIS .exe
 installer but NOT the updater pair (*.nsis.zip + *.nsis.zip.sig).
 
 Fix (PowerShell, from the nexus-class-sync-main folder):
 
   $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Raw .\\path\\to\\your.key
-  $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "only-if-key-is-encrypted"
+  $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "your-password-if-key-is-encrypted"
 
   npm run build
   npm run tauri build
@@ -67,6 +67,9 @@ Generate a key once (keep the .key file secret forever):
   npx @tauri-apps/cli signer generate -w .\\bluesync-signing.key
 
 The .pub content must match plugins.updater.pubkey in src-tauri/tauri.conf.json.
+
+GitHub Actions: set repository secrets TAURI_SIGNING_PRIVATE_KEY (full .key file) and,
+if the key is encrypted, TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
 `;
 
 console.error(msg.trim());

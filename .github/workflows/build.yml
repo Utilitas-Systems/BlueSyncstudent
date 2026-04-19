@@ -124,6 +124,7 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_signing_key=${looksValidPrivateKey ? 'true' : 'false'}\n`);
           NODE
 
+      # Encrypted .key files also need repo secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD (plain text).
       # Multiline secrets in YAML ${{ }} often break on macOS runners; append to GITHUB_ENV instead.
       - name: Load signing secrets for Tauri (multiline-safe)
         if: steps.configure_updater.outputs.has_signing_key == 'true'

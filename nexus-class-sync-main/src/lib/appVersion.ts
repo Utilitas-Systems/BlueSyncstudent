@@ -8,7 +8,7 @@ export const UPDATE_FAILED_WEBSITE_MESSAGE =
   "Update failed. You can install the latest build from the BlueSync website.";
 
 /** Strict SemVer — must match `tauri.conf.json` → `version` (used by updater / APIs). */
-export const APP_VERSION = "1.1.5";
+export const APP_VERSION = "1.1.6";
 
 /** Human-facing label in the UI (Login footer, etc.). */
-export const APP_VERSION_LABEL = "V 1.1.5";
+export const APP_VERSION_LABEL = "V 1.1.6";
