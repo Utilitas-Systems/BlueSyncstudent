@@ -1,12 +1,10 @@
 import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner, toast } from "@/components/ui/sonner";
+import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -16,7 +14,7 @@ import Settings from "./pages/Settings";
 import ClassDetails from "./pages/ClassDetails";
 import NotFound from "./pages/NotFound";
 import { AudioProvider } from "@/contexts/AudioContext";
-import { APP_DISPLAY_NAME, UPDATE_FAILED_WEBSITE_MESSAGE } from "@/lib/appVersion";
+import { APP_DISPLAY_NAME } from "@/lib/appVersion";
 
 const queryClient = new QueryClient();
 
@@ -79,74 +77,6 @@ const App = () => {
       window.addEventListener('beforeunload', onBeforeUnload);
       return () => window.removeEventListener('beforeunload', onBeforeUnload);
     }
-  }, []);
-
-  useEffect(() => {
-    const isTauri = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
-    if (!isTauri) return;
-
-    let cancelled = false;
-    let busy = false;
-
-    /** Auto-download and install when a newer signed release is published (no prompt). */
-    const checkAndApplyUpdate = async () => {
-      if (busy || cancelled) return;
-
-      let pendingUpdate: Update | null = null;
-      try {
-        pendingUpdate = await check();
-      } catch {
-        // No latest.json, unsigned CI builds, offline, etc. — do not notify.
-        return;
-      }
-
-      if (!pendingUpdate || cancelled) return;
-
-      busy = true;
-      let loadingId: string | number | undefined;
-      try {
-        loadingId = toast.loading(`Updating ${APP_DISPLAY_NAME} to v${pendingUpdate.version}…`);
-        await pendingUpdate.downloadAndInstall();
-        if (cancelled) return;
-        if (loadingId !== undefined) toast.dismiss(loadingId);
-        loadingId = undefined;
-        try {
-          toast.success(`Update installed (v${pendingUpdate.version}). Restarting…`, { duration: 4000 });
-          await relaunch();
-        } catch {
-          toast.success(`Update installed (v${pendingUpdate.version}). Restart the app to finish.`, {
-            duration: 12_000,
-          });
-        }
-      } catch (error) {
-        console.error("Auto-update install failed:", error);
-        if (loadingId !== undefined) toast.dismiss(loadingId);
-        toast.error(UPDATE_FAILED_WEBSITE_MESSAGE, { duration: 10_000 });
-      } finally {
-        try {
-          await pendingUpdate.close();
-        } catch {
-          /* resource may already be dropped after install */
-        }
-        busy = false;
-      }
-    };
-
-    const startupMs = 4_000;
-    const startupTimer = window.setTimeout(() => {
-      void checkAndApplyUpdate();
-    }, startupMs);
-
-    const intervalMs = 6 * 60 * 60 * 1000;
-    const interval = window.setInterval(() => {
-      void checkAndApplyUpdate();
-    }, intervalMs);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(startupTimer);
-      window.clearInterval(interval);
-    };
   }, []);
 
   useEffect(() => {
