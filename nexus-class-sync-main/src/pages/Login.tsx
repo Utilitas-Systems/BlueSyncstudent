@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,9 +6,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { toast as sonnerToast } from "@/components/ui/sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { APP_DISPLAY_NAME, APP_VERSION } from "@/lib/appVersion";
+import {
+  APP_DISPLAY_NAME,
+  APP_VERSION,
+  APP_VERSION_LABEL,
+  UPDATE_FAILED_WEBSITE_MESSAGE,
+} from "@/lib/appVersion";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 const openExternalUrl = (url: string) => {
   openUrl(url).catch(() => {
@@ -16,14 +24,20 @@ const openExternalUrl = (url: string) => {
   });
 };
 
+const MANUAL_UPDATE_COOLDOWN_MS = 30_000;
+
 const Login = () => {
   const [username, setUsername] = useState("");
   const [schoolCode, setSchoolCode] = useState("");
   const [password, setPassword] = useState("");
   const [saveCredentials, setSaveCredentials] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const lastManualUpdateAtRef = useRef(0);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  const isTauri = typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
 
   // Load saved credentials on component mount
   useEffect(() => {
@@ -155,14 +169,78 @@ const Login = () => {
     }
   };
 
+  const handleManualCheckForUpdates = async () => {
+    if (!isTauri || checkingUpdate) return;
+    const now = Date.now();
+    if (now - lastManualUpdateAtRef.current < MANUAL_UPDATE_COOLDOWN_MS) {
+      sonnerToast.message("Please wait a moment before checking again.");
+      return;
+    }
+    lastManualUpdateAtRef.current = now;
+    setCheckingUpdate(true);
+    let pending: Awaited<ReturnType<typeof check>> = null;
+    try {
+      pending = await check();
+    } catch (e) {
+      console.error("[Login] Update check failed:", e);
+      const msg = e instanceof Error ? e.message : "Could not reach the update server.";
+      sonnerToast.error("Update check failed", { description: msg, duration: 8000 });
+      setCheckingUpdate(false);
+      return;
+    }
+
+    if (!pending) {
+      sonnerToast.success("You’re on the latest version.", { duration: 4000 });
+      setCheckingUpdate(false);
+      return;
+    }
+
+    let loadingId: string | number | undefined;
+    try {
+      loadingId = sonnerToast.loading(`Updating to v${pending.version}…`);
+      await pending.downloadAndInstall();
+      if (loadingId !== undefined) sonnerToast.dismiss(loadingId);
+      loadingId = undefined;
+      try {
+        sonnerToast.success(`Update installed (v${pending.version}). Restarting…`, { duration: 4000 });
+        await relaunch();
+      } catch {
+        sonnerToast.success(`Update installed (v${pending.version}). Restart the app to finish.`, {
+          duration: 12_000,
+        });
+      }
+    } catch (error) {
+      console.error("[Login] Update install failed:", error);
+      if (loadingId !== undefined) sonnerToast.dismiss(loadingId);
+      sonnerToast.error(UPDATE_FAILED_WEBSITE_MESSAGE, { duration: 10_000 });
+    } finally {
+      try {
+        await pending.close();
+      } catch {
+        /* ignore */
+      }
+      setCheckingUpdate(false);
+    }
+  };
+
   return (
     <div className="relative min-h-screen flex items-center justify-center p-4">
-      <p
-        className="fixed bottom-4 left-4 z-10 text-xs text-muted-foreground tabular-nums select-none"
-        aria-label={`App version ${APP_VERSION}`}
+      <div
+        className="fixed bottom-4 left-4 z-10 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-muted-foreground tabular-nums select-none max-w-[min(100vw-2rem,20rem)]"
       >
-        v{APP_VERSION}
-      </p>
+        <span aria-label={`App version ${APP_VERSION}`}>{APP_VERSION_LABEL}</span>
+        {isTauri ? (
+          <button
+            type="button"
+            onClick={() => void handleManualCheckForUpdates()}
+            disabled={checkingUpdate}
+            className="p-0 m-0 text-[10px] font-normal text-muted-foreground/35 hover:text-muted-foreground/80 underline-offset-2 hover:underline bg-transparent border-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            aria-label="Check for app updates"
+          >
+            {checkingUpdate ? "Checking…" : "Update"}
+          </button>
+        ) : null}
+      </div>
       <div className="w-full max-w-md space-y-8">
         {/* Header */}
         <div className="text-center space-y-6">

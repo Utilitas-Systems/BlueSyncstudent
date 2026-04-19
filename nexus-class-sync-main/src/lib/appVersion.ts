@@ -7,8 +7,8 @@ export const APP_DISPLAY_NAME = "BlueSync Student";
 export const UPDATE_FAILED_WEBSITE_MESSAGE =
   "Update failed. You can install the latest build from the BlueSync website.";
 
-/**
- * Login footer label (marketing style).
- * `tauri.conf.json` → `version` must stay strict SemVer (e.g. 1.1.0); use this string for marketing labels like 1.01.00.
- */
-export const APP_VERSION = "1.1.03";
+/** Strict SemVer — must match `tauri.conf.json` → `version` (used by updater / APIs). */
+export const APP_VERSION = "1.1.4";
+
+/** Human-facing label in the UI (Login footer, etc.). */
+export const APP_VERSION_LABEL = "V 1.1.4";

@@ -1,6 +1,11 @@
 /**
- * Copies installers from src-tauri/target/release/bundle into release/windows and release/macos.
- * Run after `npm run tauri:build` on each platform (Windows produces .exe/.msi; macOS produces .dmg / .app).
+ * Collect release artifacts from `src-tauri/target/release/bundle` into:
+ * - release/windows (installers + windows updater archives/signatures)
+ * - release/macos   (installers + mac updater archives/signatures)
+ * - release/updates (latest.json + all updater payloads/signatures for website upload)
+ *
+ * Run after `npm run tauri:build` on each platform. If you run it multiple times
+ * (e.g. once on Windows + once on macOS), it keeps adding missing artifacts.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -9,6 +14,14 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 const bundleRoot = path.join(root, "src-tauri", "target", "release", "bundle");
+
+const destWin = path.join(root, "release", "windows");
+const destMac = path.join(root, "release", "macos");
+const destUpdates = path.join(root, "release", "updates");
+
+for (const dir of [destWin, destMac, destUpdates]) {
+  fs.mkdirSync(dir, { recursive: true });
+}
 
 function walkFiles(dir) {
   const out = [];
@@ -22,24 +35,51 @@ function walkFiles(dir) {
   return out;
 }
 
-const destWin = path.join(root, "release", "windows");
-const destMac = path.join(root, "release", "macos");
-fs.mkdirSync(destWin, { recursive: true });
-fs.mkdirSync(destMac, { recursive: true });
+function copyFile(src, destDir, label) {
+  const base = path.basename(src);
+  const dest = path.join(destDir, base);
+  fs.copyFileSync(src, dest);
+  console.log(`→ ${label}${base}`);
+  return 1;
+}
+
+function isWindowsInstaller(fileName) {
+  return fileName.endsWith(".exe") || fileName.endsWith(".msi");
+}
+
+function isWindowsUpdaterArtifact(fileName) {
+  return fileName.endsWith(".nsis.zip") || fileName.endsWith(".nsis.zip.sig");
+}
+
+function isMacInstaller(fileName) {
+  return fileName.endsWith(".dmg");
+}
+
+function isMacUpdaterArtifact(fileName) {
+  return fileName.endsWith(".app.tar.gz") || fileName.endsWith(".app.tar.gz.sig");
+}
 
 let copied = 0;
-for (const f of walkFiles(bundleRoot)) {
-  const base = path.basename(f);
+for (const filePath of walkFiles(bundleRoot)) {
+  const base = path.basename(filePath);
   const lower = base.toLowerCase();
-  if (lower.endsWith(".msi") || lower.endsWith(".exe")) {
-    fs.copyFileSync(f, path.join(destWin, base));
-    console.log("→ release/windows/", base);
-    copied++;
+
+  if (isWindowsInstaller(lower)) {
+    copied += copyFile(filePath, destWin, "release/windows/");
   }
-  if (lower.endsWith(".dmg")) {
-    fs.copyFileSync(f, path.join(destMac, base));
-    console.log("→ release/macos/", base);
-    copied++;
+  if (isMacInstaller(lower)) {
+    copied += copyFile(filePath, destMac, "release/macos/");
+  }
+  if (isWindowsUpdaterArtifact(lower)) {
+    copied += copyFile(filePath, destWin, "release/windows/");
+    copied += copyFile(filePath, destUpdates, "release/updates/");
+  }
+  if (isMacUpdaterArtifact(lower)) {
+    copied += copyFile(filePath, destMac, "release/macos/");
+    copied += copyFile(filePath, destUpdates, "release/updates/");
+  }
+  if (lower === "latest.json") {
+    copied += copyFile(filePath, destUpdates, "release/updates/");
   }
 }
 
@@ -51,17 +91,21 @@ if (fs.existsSync(macosDir)) {
     const dest = path.join(destMac, name);
     fs.rmSync(dest, { recursive: true, force: true });
     fs.cpSync(src, dest, { recursive: true });
-    console.log("→ release/macos/", name, "/");
+    console.log("→ release/macos/", `${name}/`);
     copied++;
   }
 }
 
 if (copied === 0) {
   console.warn(
-    "No bundle artifacts found under",
+    "No release artifacts found under",
     bundleRoot,
-    "— run npm run tauri:build first (on Windows for .exe/.msi, on macOS for .dmg/.app).",
+    "— run npm run tauri:build first.",
   );
-} else {
-  console.log("Done. Copied", copied, "item(s).");
+  process.exit(1);
 }
+
+console.log("");
+console.log("Done. Copied", copied, "item(s).");
+console.log("Upload website updater files from: release/updates/");
+console.log("Installers are in: release/windows/ and release/macos/");

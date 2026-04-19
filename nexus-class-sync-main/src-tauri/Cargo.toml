@@ -1,6 +1,6 @@
 [package]
 name = "nexus-class-sync"
-version = "0.0.0"
+version = "1.1.4"
 description = "BlueSync Student — connect to your classroom network and share devices securely"
   authors = ["BlueSync"]
 license = ""
