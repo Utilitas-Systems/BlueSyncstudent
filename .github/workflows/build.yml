@@ -245,6 +245,26 @@ jobs:
         env:
           RUST_TARGET: ${{ matrix.rustTarget }}
 
+      - name: Export .sig payloads for latest.json (website helper)
+        if: steps.configure_updater.outputs.has_signing_key == 'true'
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const dir = path.join(process.cwd(), 'ci-release', 'updates');
+          if (!fs.existsSync(dir)) process.exit(0);
+          const sigFiles = fs.readdirSync(dir).filter((n) => n.toLowerCase().endsWith('.sig'));
+          let md = '\n## Updater signatures for `latest.json` (this job)\n\nPaste each block into the matching `signature` field on the site.\n\n';
+          for (const name of sigFiles.sort()) {
+            const body = fs.readFileSync(path.join(dir, name), 'utf8').trim();
+            md += `### \`${name}\`\n\n\`\`\`\n${body}\n\`\`\`\n\n`;
+          }
+          fs.writeFileSync(path.join(dir, 'README-SIGNATURES.md'), md.trim() + '\n');
+          const sum = process.env.GITHUB_STEP_SUMMARY;
+          if (sum) fs.appendFileSync(sum, md);
+          NODE
+
       - name: Upload website updater files artifact
         if: steps.configure_updater.outputs.has_signing_key == 'true'
         uses: actions/upload-artifact@v4
