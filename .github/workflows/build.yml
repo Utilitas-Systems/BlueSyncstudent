@@ -126,6 +126,7 @@ jobs:
           NODE
 
       - name: Signing detection result
+        shell: bash
         run: |
           echo "has_signing_key=${{ steps.configure_updater.outputs.has_signing_key }}"
           if [ "${{ steps.configure_updater.outputs.has_signing_key }}" != "true" ]; then
