@@ -118,7 +118,9 @@ jobs:
             console.log('Valid minisign private key detected; updater artifacts will be generated.');
             // Keep secret bytes as pasted. Local key is a single-line base64 wrap of the
             // rsign file; Tauri accepts that form. Decoding it before signing breaks CI.
-            fs.writeFileSync('bluesync-signing.key', key.raw.endsWith('\n') ? key.raw : key.raw + '\n');
+            // Single-line wrapped keys must NOT end with \n — base64 decode treats it as invalid (symbol 10).
+            const body = key.raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trimEnd();
+            fs.writeFileSync('bluesync-signing.key', body);
           }
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_signing_key=${key.looksValid ? 'true' : 'false'}\n`);
           NODE
@@ -139,11 +141,18 @@ jobs:
         env:
           SIGNING_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          # Pass key file contents as-is (same format as local bluesync-signing.key).
-          DELIM="TAURI_SIGNING_KEY___EOF___"
-          echo "TAURI_SIGNING_PRIVATE_KEY<<$DELIM" >> "$GITHUB_ENV"
-          cat bluesync-signing.key >> "$GITHUB_ENV"
-          echo "$DELIM" >> "$GITHUB_ENV"
+          # Trim trailing whitespace so a single-line base64 wrap stays one line (no symbol 10).
+          KEY_BODY=$(tr -d '\r' < bluesync-signing.key | sed -e 's/[[:space:]]*$//')
+          printf '%s' "$KEY_BODY" > bluesync-signing.key
+          # Heredoc injects a trailing newline into env values; use one-line assignment when key has no newlines.
+          if [ "$(printf '%s' "$KEY_BODY" | wc -l | tr -d ' ')" = "0" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY=$KEY_BODY" >> "$GITHUB_ENV"
+          else
+            DELIM="TAURI_SIGNING_KEY___EOF___"
+            echo "TAURI_SIGNING_PRIVATE_KEY<<$DELIM" >> "$GITHUB_ENV"
+            printf '%s\n' "$KEY_BODY" >> "$GITHUB_ENV"
+            echo "$DELIM" >> "$GITHUB_ENV"
+          fi
           # Password: repo secret if set, else project default "bluesync"
           PW="${SIGNING_PASSWORD:-bluesync}"
           DELIM2="TAURI_SIGNING_PW___EOF___"
