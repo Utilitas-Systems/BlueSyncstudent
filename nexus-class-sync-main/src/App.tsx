@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { beaconStudentOffline, updateStudentStatus } from "@/lib/studentRpc";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -15,6 +15,7 @@ import ClassDetails from "./pages/ClassDetails";
 import NotFound from "./pages/NotFound";
 import { AudioProvider } from "@/contexts/AudioContext";
 import { APP_DISPLAY_NAME } from "@/lib/appVersion";
+import { UpdateOverlay } from "@/components/UpdateOverlay";
 
 const queryClient = new QueryClient();
 
@@ -33,15 +34,10 @@ const App = () => {
   useEffect(() => {
     const setStudentOffline = async () => {
       try {
-        const raw = sessionStorage.getItem('student_user');
-        if (!raw) return;
-        const user = JSON.parse(raw) as { id?: string };
-        if (!user?.id) return;
-        await supabase
-          .from('students')
-          .update({ is_online: false, last_seen: new Date().toISOString() })
-          .eq('id', user.id);
-      } catch {}
+        await updateStudentStatus(false);
+      } catch {
+        beaconStudentOffline();
+      }
     };
 
     const isTauri = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
@@ -55,24 +51,7 @@ const App = () => {
       return () => { unlisten?.(); };
     } else {
       const onBeforeUnload = () => {
-        const raw = sessionStorage.getItem('student_user');
-        if (!raw) return;
-        try {
-          const user = JSON.parse(raw) as { id?: string };
-          if (!user?.id) return;
-          const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/students?id=eq.${user.id}`;
-          fetch(url, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-              'Prefer': 'return=minimal',
-              'x-app-user-id': user.id,
-            },
-            body: JSON.stringify({ is_online: false, last_seen: new Date().toISOString() }),
-            keepalive: true,
-          }).catch(() => {});
-        } catch {}
+        beaconStudentOffline();
       };
       window.addEventListener('beforeunload', onBeforeUnload);
       return () => window.removeEventListener('beforeunload', onBeforeUnload);
@@ -127,6 +106,7 @@ const App = () => {
       <TooltipProvider>
         <Toaster />
         <Sonner />
+        <UpdateOverlay />
         <AudioProvider
           studentId={studentId}
           classId={classId}

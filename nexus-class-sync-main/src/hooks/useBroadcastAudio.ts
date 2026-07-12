@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { supabase } from '@/integrations/supabase/client';
+import { resolveRealtimeChannel } from '@/lib/realtimeChannel';
+import { updateStudentAudioLevel } from '@/lib/studentRpc';
 
 const MAC_SESSION_ZERO_HINT = 'bluesync-mac-audio-zero-hint-v1';
+const ANDROID_SESSION_ZERO_HINT = 'bluesync-android-audio-zero-hint-v1';
 
 const MAC_HELP_FOOTER = `
 
@@ -20,10 +23,29 @@ const MAC_ZERO_ONLY_HELP = `We have not detected system audio for a little while
 • Play sound from a video or music while this class session is active—levels measure what plays through the Mac, not a microphone.
 • Restart the app after changing permissions.`;
 
+const ANDROID_HELP_FOOTER = `
+
+To share system audio levels with your teacher (videos, browser, apps):
+
+1. When Android asks to capture or share audio/screen for BlueSync, tap Allow.
+2. On Chromebooks, check that your school has not blocked screen/audio capture.
+3. Bluetooth and notifications may also need to be allowed in Android settings or by IT.
+
+BlueSync measures system playback levels only — not your microphone. Updates come from Managed Google Play, not an in-app updater.`;
+
+const ANDROID_ZERO_ONLY_HELP = `We have not detected system audio for a little while.
+
+• Allow playback / MediaProjection capture when prompted.
+• Play sound from a video or music while this class session is active.
+• Ask IT if capture is blocked on managed Chromebooks.
+• Restart the app after changing permissions.`;
+
 type PeakDetails = {
   peak: number;
   isMacos?: boolean;
+  isAndroid?: boolean;
   macosMeterError?: string | null;
+  androidMeterError?: string | null;
 };
 
 type BroadcastAudioObjectParams = {
@@ -131,8 +153,21 @@ export function useBroadcastAudio(
 
     const effectiveClassId = resolveClassId(classId);
     subscribedRef.current = false;
-    if (effectiveClassId) {
-      const channelName = `class_${effectiveClassId}_audio`;
+    let cancelled = false;
+
+    const setupChannel = async () => {
+      if (!effectiveClassId) {
+        console.warn('[useBroadcastAudio] No valid classId found for audio broadcast', {
+          classIdFromHook: classId,
+          studentId
+        });
+        return;
+      }
+      const channelName = await resolveRealtimeChannel('class_audio', effectiveClassId);
+      if (cancelled || !channelName) {
+        console.warn('[useBroadcastAudio] No signed channel for class_audio', { effectiveClassId });
+        return;
+      }
       const channel = supabase.channel(channelName, { config: { broadcast: { self: true } } });
       chanRef.current = channel;
       channel.on('broadcast', { event: 'audio_level' }, () => {});
@@ -153,12 +188,9 @@ export function useBroadcastAudio(
           });
         }
       });
-    } else {
-      console.warn('[useBroadcastAudio] No valid classId found for audio broadcast', {
-        classIdFromHook: classId,
-        studentId
-      });
-    }
+    };
+
+    void setupChannel();
 
     const sendPayload = async (audioLevel: number, isTalking: boolean) => {
       const effectiveClassId = resolveClassId(classId);
@@ -184,6 +216,7 @@ export function useBroadcastAudio(
             timestamp,
           },
         });
+        void updateStudentAudioLevel(audioLevel);
         lastBroadcastTimeRef.current = Date.now();
         console.log('[useBroadcastAudio] Sent audio_level', {
           classId: effectiveClassId,
@@ -255,8 +288,15 @@ export function useBroadcastAudio(
             showMacHelp('System audio is not available', `${err}${MAC_HELP_FOOTER}`);
           }
           macSilentStreakRef.current = 0;
+        } else if (details?.isAndroid && details.androidMeterError) {
+          const err = String(details.androidMeterError);
+          if (err !== lastMeterErrorShownRef.current) {
+            lastMeterErrorShownRef.current = err;
+            showMacHelp('System audio is not available', `${err}${ANDROID_HELP_FOOTER}`);
+          }
+          macSilentStreakRef.current = 0;
         } else {
-          if (details?.isMacos) {
+          if (details?.isMacos || details?.isAndroid) {
             lastMeterErrorShownRef.current = null;
           }
           if (details?.isMacos && !talkingWithHold) {
@@ -268,6 +308,19 @@ export function useBroadcastAudio(
             ) {
               sessionStorage.setItem(MAC_SESSION_ZERO_HINT, '1');
               showMacHelp('No system audio detected', `${MAC_ZERO_ONLY_HELP}${MAC_HELP_FOOTER}`);
+            }
+          } else if (details?.isAndroid && !talkingWithHold) {
+            macSilentStreakRef.current += 1;
+            if (
+              macSilentStreakRef.current >= 6 &&
+              typeof sessionStorage !== 'undefined' &&
+              !sessionStorage.getItem(ANDROID_SESSION_ZERO_HINT)
+            ) {
+              sessionStorage.setItem(ANDROID_SESSION_ZERO_HINT, '1');
+              showMacHelp(
+                'No system audio detected',
+                `${ANDROID_ZERO_ONLY_HELP}${ANDROID_HELP_FOOTER}`
+              );
             }
           } else {
             macSilentStreakRef.current = 0;
@@ -298,6 +351,11 @@ export function useBroadcastAudio(
               'System audio is not available',
               `${String(error)}${MAC_HELP_FOOTER}`
             );
+          } else if (d.isAndroid) {
+            showMacHelp(
+              'System audio is not available',
+              `${String(error)}${ANDROID_HELP_FOOTER}`
+            );
           }
         } catch {
           /* not tauri or command missing */
@@ -306,6 +364,7 @@ export function useBroadcastAudio(
     }, 2 * 1000);
 
     return () => {
+      cancelled = true;
       if (checkIntervalRef.current) {
         window.clearInterval(checkIntervalRef.current);
         checkIntervalRef.current = null;

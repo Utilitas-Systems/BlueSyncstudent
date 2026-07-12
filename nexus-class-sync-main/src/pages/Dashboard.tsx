@@ -11,8 +11,15 @@ import { useBroadcastDevices } from "@/hooks/useBroadcastDevices";
 import { useBroadcastPresence } from "@/hooks/useBroadcastPresence";
 import { useStudentAttentionListener } from "@/hooks/useStudentAttentionListener";
 import { supabase } from "@/integrations/supabase/client";
+import { beaconStudentOffline, fetchStudentClasses, joinClassByCode, studentLeaveClass, updateStudentStatus } from "@/lib/studentRpc";
+import { formatRpcError } from "@/lib/rpcError";
+import { persistStudentClass } from "@/lib/studentClass";
+import { clearStudentAuth, getSessionToken, onSessionExpired, verifyStoredSession } from "@/lib/studentSession";
+import { getMockBluetoothDevices, isMockBluetoothEnabled, onMockBluetoothChanged } from "@/lib/mockBluetoothDevices";
+import { pushStudentDeviceList, invalidateDeviceChannels } from "@/lib/pushStudentDeviceList";
 import attentionAlertSoundUrl from "@/assets/attention-alert.mp3";
 import { APP_DISPLAY_NAME } from "@/lib/appVersion";
+import { isAndroid, isTauri } from "@/lib/platform";
 import { invoke } from "@tauri-apps/api/core";
 import { Progress } from "@/components/ui/progress";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -177,7 +184,47 @@ const Dashboard = () => {
 
   const onlineBadge = (presenceOnline || !!user?.is_online);
 
-  const getConnectedBluetoothDevices = async (opts?: { fromPoll?: boolean }) => {
+  const mergeMockDevices = (
+    list: Array<{ id: string; name: string; type: string; isConnected: boolean; sharing: boolean }>
+  ) => {
+    const merged = [...list];
+    const seen = new Set(merged.map((d) => (d.name || '').toLowerCase()));
+    for (const mock of getMockBluetoothDevices()) {
+      const key = mock.name.toLowerCase();
+      if (!seen.has(key)) {
+        merged.push(mock);
+        seen.add(key);
+      }
+    }
+    return merged;
+  };
+
+  const applyDeviceList = (
+    deviceList: Array<{ id: string; name: string; type: string; isConnected: boolean; sharing: boolean }>,
+    opts?: { force?: boolean }
+  ) => {
+    const withMocks = mergeMockDevices(deviceList);
+    withMocks.sort((a, b) => (a.id + a.name).localeCompare(b.id + b.name));
+    const changed = opts?.force || !arraysEqual(devicesRef.current, withMocks);
+    if (changed) {
+      devicesRef.current = withMocks;
+      setBluetoothDevices(withMocks);
+      if (userId && classId) {
+        void pushStudentDeviceList(
+          userId,
+          classId,
+          deviceList.map((d) => ({ name: d.name, type: d.type, isConnected: d.isConnected }))
+        );
+      }
+    }
+  };
+
+  const rebroadcastCurrentDevices = (opts?: { force?: boolean }) => {
+    const real = devicesRef.current.filter((d) => !d.isMock);
+    applyDeviceList(real, opts);
+  };
+
+  const getConnectedBluetoothDevices = async (opts?: { fromPoll?: boolean; force?: boolean }) => {
     if (isShuttingDownRef.current || scanningRef.current) return;
     const now = Date.now();
     // Manual scans only: throttle rapid clicks. Background poll bypasses so it never fights this window or spams toasts.
@@ -190,8 +237,9 @@ const Dashboard = () => {
     try {
       const isTauri = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
       if (!isTauri) {
-        // For background polling we don't want repeated toasts.
-        if (!opts?.fromPoll) {
+        // ponytail: browser has no real BT — still push list (with or without mock) so server drops removed rows
+        applyDeviceList([], opts);
+        if (!opts?.fromPoll && getMockBluetoothDevices().length === 0) {
           toast({
             title: "Desktop App Required",
             description: "Bluetooth scanning requires the desktop app (Windows or Mac).",
@@ -238,16 +286,7 @@ const Dashboard = () => {
       } catch {}
 
       if (!isShuttingDownRef.current) {
-        // stable sort and diff - only update state and broadcast when something actually changed
-        deviceList.sort((a, b) => (a.id + a.name).localeCompare(b.id + b.name));
-        const changed = !arraysEqual(devicesRef.current, deviceList);
-        if (changed) {
-          devicesRef.current = deviceList;
-          setBluetoothDevices(deviceList);
-          try {
-            (broadcastDeviceList as any)?.(deviceList.map(d => ({ name: d.name, type: d.type, isConnected: d.isConnected })));
-          } catch {}
-        }
+        applyDeviceList(deviceList, opts);
       }
 
       // no toast
@@ -280,7 +319,26 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
+    const handleExpired = () => {
+      toast({
+        title: "Session expired",
+        description: "Please sign in again.",
+        variant: "destructive",
+      });
+      navigate('/');
+    };
+    return onSessionExpired(handleExpired);
+  }, [navigate, toast]);
+
+  useEffect(() => {
     const loadDashboardData = async () => {
+      const sessionOk = await verifyStoredSession();
+      if (!sessionOk) {
+        clearStudentAuth({ silent: true });
+        navigate('/');
+        return;
+      }
+
       try {
         setLoadError(null);
         const storedUser = sessionStorage.getItem('student_user');
@@ -289,6 +347,12 @@ const Dashboard = () => {
         
         if (!storedUser || !storedSchool) {
           console.log('[Dashboard] No user or school in session, redirecting to login');
+          navigate('/');
+          return;
+        }
+
+        if (!getSessionToken()) {
+          console.log('[Dashboard] No session token, redirecting to login');
           navigate('/');
           return;
         }
@@ -328,57 +392,10 @@ const Dashboard = () => {
           }
         }
 
-        // Set the current user session for RLS policies
-        try {
-          const { error: setUserError } = await supabase.rpc('set_current_user' as any, {
-            user_uuid: parsedUser.id
-          });
-
-          if (setUserError) {
-            console.error('Error setting current user:', setUserError);
-          }
-        } catch (rpcError) {
-          console.error('[Dashboard] Error in set_current_user RPC', rpcError);
-        }
-
-        // Fetch current online status from database
-        try {
-          const { data, error } = await supabase
-            .from('students')
-            .select('is_online')
-            .eq('id', parsedUser.id)
-            .maybeSingle();
-          
-          if (error) {
-            setUser(prev => prev ? { ...prev, is_online: false } : null);
-          } else if (data) {
-            setUser(prev => prev ? { ...prev, is_online: data.is_online } : null);
-          }
-        } catch (statusError) {
-          setUser(prev => prev ? { ...prev, is_online: false } : null);
-        }
-
-        // If no class in session, fetch enrolled classes via RPC and use first one
+        // If no class in session, fetch enrolled classes via RPC
         if (!storedClass) {
           try {
-            let rpcResult = await supabase.rpc('get_student_classes' as any, { p_student_id: parsedUser.id });
-            if (rpcResult.error && /function.*does not exist|Could not find|no such function/i.test(rpcResult.error.message || "")) {
-              rpcResult = await supabase.rpc('get_student_classes' as any);
-            }
-            let classesList: Array<{ id: string; class_code?: string; class_name?: string }> = [];
-            if (!rpcResult.error && Array.isArray(rpcResult.data)) {
-              classesList = rpcResult.data;
-            } else if (rpcResult.error) {
-              const fallback = await supabase
-                .from("class_students")
-                .select("class_id, classes(id, class_code, class_name, created_at, teacher_id)")
-                .eq("student_id", parsedUser.id);
-              if (!fallback.error && fallback.data) {
-                classesList = (fallback.data as { classes: { id: string; class_code?: string; class_name?: string } | null }[])
-                  .filter((r) => r.classes)
-                  .map((r) => r.classes!);
-              }
-            }
+            const classesList = await fetchStudentClasses();
             if (classesList.length > 0) {
               const first = classesList[0];
               const cls = { id: first.id, class_code: first.class_code ?? '', class_name: first.class_name ?? 'Class' };
@@ -404,58 +421,35 @@ const Dashboard = () => {
     loadDashboardData();
   }, [navigate, toast]);
 
-  // Ensure online status is set when app opens
-  useEffect(() => {
-    const setOnline = async () => {
-      if (!user?.id) return;
-      try {
-        const { error } = await supabase
-          .from('students')
-          .update({ is_online: true, last_seen: new Date().toISOString() })
-          .eq('id', user.id);
-        if (!error) {
-          setUser(prev => prev ? { ...prev, is_online: true } : prev);
-        }
-      } catch {}
-    };
-    setOnline();
-  }, [user?.id]);
-
   const setDbOnlineStatus = async (flag: boolean) => {
     if (!user?.id) return;
     try {
-      const { error } = await supabase
-        .from('students')
-        .update({ is_online: flag, last_seen: new Date().toISOString() })
-        .eq('id', user.id);
-      if (!error) {
-        setUser(prev => prev ? { ...prev, is_online: flag } : prev);
-      } else {
-        console.error('Failed to update is_online:', error);
-      }
+      await updateStudentStatus(flag);
+      setUser(prev => prev ? { ...prev, is_online: flag } : prev);
     } catch (e) {
       console.error('Error updating is_online:', e);
     }
   };
 
-  // Start presence once both user and class are set
+  // Start presence once both user and class are set (keeps running when navigating to Settings)
   useEffect(() => {
     if (user && classData) {
-      if (!startedPresenceRef.current) {
-        startedPresenceRef.current = true;
-        startPresence();
-      }
-      return () => {
-        stopPresence();
-        startedPresenceRef.current = false;
-      };
+      startPresence();
+      void setDbOnlineStatus(true);
     }
-  }, [user, classData, startPresence, stopPresence]);
+  }, [user, classData, startPresence]);
 
   // After presence is active, update online status (no automatic Bluetooth scan)
   useEffect(() => {
     if (presenceOnline) {
       setDbOnlineStatus(true);
+      if (isAndroid()) {
+        void invoke("start_session_monitoring").catch(() => {
+          /* FGS optional until Kotlin stub lands */
+        });
+      }
+    } else if (isAndroid()) {
+      void invoke("stop_session_monitoring").catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presenceOnline]);
@@ -464,8 +458,7 @@ const Dashboard = () => {
   useEffect(() => {
     const notify = async () => {
       try {
-        const isTauri = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
-        if (isTauri) {
+        if (isTauri()) {
           // Use global notification plugin via window.__TAURI__ bridge
           try { await (window as any).__TAURI__?.notification?.send?.({ title: APP_DISPLAY_NAME, body: 'your still being monitored' }); }
           catch { /* Notification not available */ }
@@ -485,35 +478,8 @@ const Dashboard = () => {
     return () => { if (reminderRef.current) { window.clearInterval(reminderRef.current); reminderRef.current = null; } };
   }, [presenceOnline]);
 
-  // Tauri window focus/blur handling to manage presence
-  useEffect(() => {
-    let unlistenBlur: (() => void) | undefined;
-    let unlistenFocus: (() => void) | undefined;
-
-    const setupTauriEvents = async () => {
-      try {
-        const win = getCurrentWindow();
-        unlistenBlur = await win.listen('tauri://window-blur', () => {
-          try { stopPresence(); } catch {}
-          setDbOnlineStatus(false);
-        });
-        unlistenFocus = await win.listen('tauri://window-focus', async () => {
-          try {
-            const online = navigator.onLine;
-            if (online) { await startPresence(); setDbOnlineStatus(true); }
-          } catch {}
-        });
-      } catch {}
-    };
-
-    setupTauriEvents();
-    return () => {
-      try { unlistenBlur?.(); } catch {}
-      try { unlistenFocus?.(); } catch {}
-    };
-  }, [startPresence, stopPresence]);
-
-  // Network connectivity monitoring to toggle presence
+  // Stay online while the app is open — do not mark offline on window blur (monitoring app).
+  // Presence + DB status are cleared only on logout or app close.
   useEffect(() => {
     let interval: number | undefined;
     const check = async () => {
@@ -536,14 +502,19 @@ const Dashboard = () => {
   const getBtRef = useRef(getConnectedBluetoothDevices);
   getBtRef.current = getConnectedBluetoothDevices;
   useEffect(() => {
-    if (!presenceOnline || !classData || !hasValidData) return;
+    if (!classData || !hasValidData) return;
     const isTauri = typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
-    if (!isTauri) return;
-    const poll = () => { getBtRef.current({ fromPoll: true }); };
-    poll(); // initial
-    const interval = window.setInterval(poll, 90000);
-    return () => window.clearInterval(interval);
-  }, [presenceOnline, classData?.id, hasValidData]);
+    rebroadcastCurrentDevices({ force: true });
+    if (isTauri) void getBtRef.current({ fromPoll: true });
+    const unlistenMock = onMockBluetoothChanged(() => rebroadcastCurrentDevices({ force: true }));
+    const interval = isTauri
+      ? window.setInterval(() => { getBtRef.current({ fromPoll: true }); }, 90000)
+      : undefined;
+    return () => {
+      unlistenMock();
+      if (interval) window.clearInterval(interval);
+    };
+  }, [classData?.id, hasValidData, userId]);
 
   // Minimize/restore lifecycle events
   useEffect(() => {
@@ -576,111 +547,26 @@ const Dashboard = () => {
     const trimmedCode = classCode.trim().toUpperCase();
 
     try {
-      // 1) Try join_class_by_code RPC (if it exists and uses current_user_id or auth)
-      let data: unknown = null;
-      let rpcError: { message?: string } | null = null;
-      for (const params of [{ p_class_code: trimmedCode }, { class_code: trimmedCode }]) {
-        const result = await supabase.rpc('join_class_by_code' as any, params);
-        rpcError = result.error;
-        data = result.data;
-        if (!result.error) break;
-        if (result.error?.message?.includes('function') && result.error?.message?.includes('does not exist')) break;
-      }
-
-      if (!rpcError && data != null) {
-        const classRecord = (data && typeof data === 'object' && 'id' in data)
-          ? (data as ClassData)
-          : Array.isArray(data) && data[0]
-            ? (data[0] as ClassData)
-            : null;
-        if (classRecord?.id) {
-          toast({ title: "Success!", description: `Joined ${classRecord.class_name || 'the class'} successfully.` });
-          setClassCode("");
-          setClassData(classRecord);
-          try { sessionStorage.setItem('student_class', JSON.stringify(classRecord)); localStorage.setItem('student_class', JSON.stringify(classRecord)); } catch {}
-          setIsJoining(false);
-          return;
-        }
-      }
-
-      // 2) Fallback: get class via RPC or direct select, then insert into class_students
-      let classRecord: ClassData | null = null;
-
-      const { data: classDataFromRpc, error: lookupErr } = await supabase.rpc('student_get_class_by_code' as any, {
-        p_class_code: trimmedCode,
-        p_student_id: user.id
-      });
-
-      if (!lookupErr && classDataFromRpc && typeof classDataFromRpc === 'object' && 'id' in classDataFromRpc) {
-        const raw = classDataFromRpc as Record<string, unknown>;
-        classRecord = {
-          id: raw.id as string,
-          class_name: (raw.class_name as string) ?? 'Class',
-          class_code: (raw.class_code as string) ?? trimmedCode
-        } as ClassData;
-      }
-
-      if (!classRecord) {
-        const { data: classRow, error: selectErr } = await supabase
-          .from('classes')
-          .select('id, class_code, class_name')
-          .eq('class_code', trimmedCode)
-          .eq('school_id', user.school_id)
-          .maybeSingle();
-        if (!selectErr && classRow) {
-          classRecord = classRow as ClassData;
-        }
-      }
-
-      if (!classRecord?.id) {
-        toast({
-          title: "Class Not Found",
-          description: `No class with code "${trimmedCode}" in your school. Check the code and try again.`,
-          variant: "destructive",
-        });
-        setIsJoining(false);
-        return;
-      }
-
-      const { data: existing } = await supabase
-        .from('class_students')
-        .select('class_id')
-        .eq('class_id', classRecord.id)
-        .eq('student_id', user.id)
-        .maybeSingle();
-
-      if (existing) {
-        toast({ title: "Already Joined", description: "You're already in this class.", variant: "destructive" });
-        setClassCode("");
-        setClassData(classRecord);
-        try { sessionStorage.setItem('student_class', JSON.stringify(classRecord)); localStorage.setItem('student_class', JSON.stringify(classRecord)); } catch {}
-        setIsJoining(false);
-        return;
-      }
-
-      const { error: insertErr } = await supabase
-        .from('class_students')
-        .insert({ class_id: classRecord.id, student_id: user.id });
-
-      if (insertErr) {
-        toast({
-          title: "Could not join class",
-          description: insertErr.message || "Please try again.",
-          variant: "destructive",
-        });
-        setIsJoining(false);
-        return;
-      }
-
+      const classRecord = await joinClassByCode(trimmedCode);
       toast({ title: "Success!", description: `Joined ${classRecord.class_name} successfully.` });
       setClassCode("");
       setClassData(classRecord);
-      try { sessionStorage.setItem('student_class', JSON.stringify(classRecord)); localStorage.setItem('student_class', JSON.stringify(classRecord)); } catch {}
+      persistStudentClass(classRecord);
+      invalidateDeviceChannels();
+      if (user.id) {
+        void pushStudentDeviceList(user.id, classRecord.id, []);
+        startPresence();
+        void updateStudentStatus(true);
+      }
     } catch (error) {
-      console.error('Join class error:', error);
+      const msg = formatRpcError(error, "Something went wrong. Try again.");
+      if (msg.includes('Session expired')) {
+        navigate('/');
+        return;
+      }
       toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Something went wrong. Please try again.",
+        title: "Could not join class",
+        description: msg,
         variant: "destructive",
       });
     } finally {
@@ -694,25 +580,15 @@ const Dashboard = () => {
     try { stopPresence(); } catch {}
     startedPresenceRef.current = false;
     if (user) {
-      console.log('Setting student offline status for user:', user.id);
-      const { error } = await supabase
-        .from('students')
-        .update({ 
-          is_online: false, 
-          last_seen: new Date().toISOString() 
-        })
-        .eq('id', user.id);
-        
-      if (error) {
+      try {
+        await updateStudentStatus(false);
+      } catch (error) {
         console.error('Error setting offline status:', error);
-      } else {
-        console.log('Successfully set student offline status');
+        beaconStudentOffline();
       }
     }
     
-    sessionStorage.removeItem('student_user');
-    sessionStorage.removeItem('student_school');
-    sessionStorage.removeItem('student_class'); localStorage.removeItem('student_class');
+    clearStudentAuth({ silent: true });
     navigate('/');
   };
 
@@ -932,8 +808,8 @@ const Dashboard = () => {
         </Card>
       </div>
 
-      {/* Bluetooth Devices Card - Only show when online */}
-      {user.is_online && (
+      {/* Bluetooth Devices Card */}
+      {(onlineBadge || isMockBluetoothEnabled() || bluetoothDevices.length > 0) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
@@ -957,7 +833,12 @@ const Dashboard = () => {
                         {getDeviceIcon(device.type)}
                       </div>
                       <div>
-                        <h4 className="font-medium">{device.name}</h4>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-medium">{device.name}</h4>
+                          {device.isMock && (
+                            <Badge variant="secondary" className="text-xs">Mock</Badge>
+                          )}
+                        </div>
                         <p className="text-sm text-muted-foreground">
                           {device.isConnected ? 'Connected' : 'Disconnected'}
                           {device.sharing && ' • Sharing'}

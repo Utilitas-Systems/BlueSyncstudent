@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { fetchStudentClasses, studentLeaveClass } from "@/lib/studentRpc";
+import { getSessionToken } from "@/lib/studentSession";
 import {
   ArrowLeft,
   Users,
@@ -41,47 +42,19 @@ const ManageClasses = () => {
   useEffect(() => {
     const storedUser = sessionStorage.getItem('student_user');
     
-    if (!storedUser) {
+    if (!storedUser || !getSessionToken()) {
       navigate('/');
       return;
     }
 
     const userData = JSON.parse(storedUser);
     setUser(userData);
-    fetchUserClasses(userData.id);
+    void fetchUserClasses();
   }, [navigate]);
 
-  const fetchUserClasses = async (studentId: string) => {
+  const fetchUserClasses = async () => {
     try {
-      let result = await supabase.rpc("get_student_classes" as any, { p_student_id: studentId });
-      if (result.error && /function.*does not exist|Could not find|no such function/i.test(result.error.message || "")) {
-        result = await supabase.rpc("get_student_classes" as any);
-      }
-      let classesData: ClassData[] = [];
-
-      if (!result.error && Array.isArray(result.data)) {
-        classesData = result.data as ClassData[];
-      } else if (result.error) {
-        let fallback = await supabase
-          .from("class_students")
-          .select("class_id, classes(id, class_code, class_name, created_at, teacher_id)")
-          .eq("student_id", studentId);
-        if (!fallback.error && fallback.data && fallback.data.length > 0) {
-          classesData = (fallback.data as { classes: ClassData | null }[])
-            .filter((r) => r.classes)
-            .map((r) => r.classes!);
-        }
-        if (classesData.length === 0) {
-          const studentRow = await supabase
-            .from("students")
-            .select("class_id, classes(id, class_code, class_name, created_at, teacher_id)")
-            .eq("id", studentId)
-            .maybeSingle();
-          if (!studentRow.error && studentRow.data?.classes) {
-            classesData = [studentRow.data.classes as ClassData];
-          }
-        }
-      }
+      let classesData = (await fetchStudentClasses()) as ClassData[];
 
       if (classesData.length === 0) {
         for (const source of [sessionStorage, localStorage]) {
@@ -95,14 +68,6 @@ const ManageClasses = () => {
               }
             } catch {}
           }
-        }
-        if (classesData.length === 0 && result.error) {
-          console.error("Error fetching classes:", result.error);
-          toast({
-            title: "Error",
-            description: "Failed to load your classes. Ensure Supabase migrations are applied.",
-            variant: "destructive",
-          });
         }
       }
       setClasses(classesData);
@@ -122,41 +87,21 @@ const ManageClasses = () => {
     if (!user) return;
 
     try {
-      let { error } = await supabase.rpc("leave_class" as any, { p_class_id: classId, p_student_id: user.id });
-
-      if (error) {
-        const rpcFailed = /function.*does not exist|Could not find|no such function|unknown parameter|does not have a parameter/i.test(error.message || "");
-        if (rpcFailed) {
-          const { error: delError } = await supabase
-            .from("class_students")
-            .delete()
-            .eq("class_id", classId)
-            .eq("student_id", user.id);
-          error = delError;
-        }
-      }
-
-      if (error) {
-        console.error("Error leaving class:", error);
-        toast({
-          title: "Error",
-          description: error.message || "Failed to leave class.",
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: "Left Class",
-          description: `You have left ${className}.`,
-        });
-        setClasses((prev) => prev.filter((c) => c.id !== classId));
-        sessionStorage.removeItem("current_class_id");
-        localStorage.removeItem("current_class_id");
-      }
+      await studentLeaveClass(classId);
+      toast({
+        title: "Left Class",
+        description: `You have left ${className}.`,
+      });
+      setClasses((prev) => prev.filter((c) => c.id !== classId));
+      sessionStorage.removeItem("current_class_id");
+      localStorage.removeItem("current_class_id");
+      sessionStorage.removeItem("student_class");
+      localStorage.removeItem("student_class");
     } catch (error) {
-      console.error("Unexpected error leaving class:", error);
+      console.error("Error leaving class:", error);
       toast({
         title: "Error",
-        description: "An unexpected error occurred.",
+        description: error instanceof Error ? error.message : "Failed to leave class.",
         variant: "destructive",
       });
     }
@@ -165,7 +110,7 @@ const ManageClasses = () => {
   const handleRefresh = () => {
     if (!user?.id) return;
     setIsRefreshing(true);
-    fetchUserClasses(user.id).finally(() => setIsRefreshing(false));
+    fetchUserClasses().finally(() => setIsRefreshing(false));
   };
 
   if (!user) return null;

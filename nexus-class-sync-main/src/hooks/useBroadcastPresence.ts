@@ -1,94 +1,201 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { resolveRealtimeChannel } from '@/lib/realtimeChannel';
 
 type PresenceStudent = { id: string; username?: string; full_name?: string };
 
+// ponytail: one presence session survives Dashboard ↔ Settings navigation; stop only on logout/close
+const shared = {
+  sessionKey: '',
+  channels: [] as ReturnType<typeof supabase.channel>[],
+  hb: null as number | null,
+  listeners: new Set<(online: boolean) => void>(),
+};
+
+function presenceKey(classId: string, studentId: string) {
+  return `${classId}:${studentId}`;
+}
+
+function notifyPresenceListeners(online: boolean) {
+  shared.listeners.forEach((fn) => fn(online));
+}
+
+async function resolveClassPresenceChannelNames(classId: string): Promise<string[]> {
+  const names = new Set<string>();
+  // Teacher portal listens here — subscribe first
+  names.add(`class_${classId}_presence`);
+  try {
+    const signed = await resolveRealtimeChannel('class_presence', classId);
+    if (signed) names.add(signed);
+  } catch (e) {
+    console.warn('[presence] signed channel lookup failed', e);
+  }
+  return [...names];
+}
+
+function subscribePresenceChannel(
+  channelName: string,
+  studentId: string
+): Promise<ReturnType<typeof supabase.channel>> {
+  const channel = supabase.channel(channelName, {
+    config: {
+      presence: { key: studentId },
+      broadcast: { self: true },
+    },
+  });
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      reject(new Error(`Presence subscribe timeout: ${channelName}`));
+    }, 15000);
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        window.clearTimeout(timeout);
+        resolve(channel);
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        window.clearTimeout(timeout);
+        reject(new Error(`Presence channel ${channelName}: ${status}`));
+      }
+    });
+  });
+}
+
+export function stopStudentPresenceSession(): void {
+  if (shared.hb) {
+    window.clearInterval(shared.hb);
+    shared.hb = null;
+  }
+  for (const channel of shared.channels) {
+    try {
+      channel.untrack();
+    } catch {}
+    try {
+      channel.unsubscribe();
+    } catch {}
+  }
+  shared.channels = [];
+  shared.sessionKey = '';
+  notifyPresenceListeners(false);
+}
+
+async function startSharedPresence(
+  classId: string,
+  studentId: string,
+  username: string,
+  full_name: string
+): Promise<void> {
+  const key = presenceKey(classId, studentId);
+  if (shared.sessionKey === key && shared.channels.length > 0) {
+    notifyPresenceListeners(true);
+    return;
+  }
+
+  stopStudentPresenceSession();
+  shared.sessionKey = key;
+
+  const channelNames = await resolveClassPresenceChannelNames(classId);
+  const channels: ReturnType<typeof supabase.channel>[] = [];
+  for (const channelName of channelNames) {
+    try {
+      channels.push(await subscribePresenceChannel(channelName, studentId));
+      console.log('[Student] presence subscribed', channelName);
+    } catch (e) {
+      console.error('[Student] presence subscribe failed', channelName, e);
+    }
+  }
+  if (channels.length === 0) {
+    shared.sessionKey = '';
+    return;
+  }
+  shared.channels = channels;
+
+  const trackAll = async () => {
+    const now = new Date().toISOString();
+    const presenceData = {
+      student_id: studentId,
+      username,
+      full_name,
+      online_at: now,
+      last_heartbeat: now,
+    };
+    let ok = false;
+    for (const channel of shared.channels) {
+      try {
+        await channel.track(presenceData);
+        ok = true;
+      } catch (e) {
+        console.error('[Student] presence track error:', e);
+      }
+    }
+    if (ok) notifyPresenceListeners(true);
+  };
+
+  await trackAll();
+
+  shared.hb = window.setInterval(() => {
+    void trackAll();
+  }, 30 * 1000);
+}
+
+function isSharedPresenceActive(classId: string, studentId: string): boolean {
+  return shared.sessionKey === presenceKey(classId, studentId) && shared.channels.length > 0;
+}
+
 // Overloads: legacy and new object-based API
 export function useBroadcastPresence(classId?: string, studentId?: string): void;
-export function useBroadcastPresence(params: { student: PresenceStudent; classId: string }): { isOnline: boolean; startPresence: () => void; stopPresence: () => void };
+export function useBroadcastPresence(params: {
+  student: PresenceStudent;
+  classId: string;
+}): { isOnline: boolean; startPresence: () => void; stopPresence: () => void };
 export function useBroadcastPresence(
   arg1?: string | { student: PresenceStudent; classId: string },
   arg2?: string
 ) {
   const isObjectParams = typeof arg1 === 'object' && arg1 !== null;
-  const classId = isObjectParams ? (arg1 as any).classId : (arg1 as string | undefined);
-  const studentId = isObjectParams ? (arg1 as any).student?.id : (arg2 as string | undefined);
-  const username = isObjectParams ? (arg1 as any).student?.username : undefined;
-  const full_name = isObjectParams ? (arg1 as any).student?.full_name : undefined;
-  const chanRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const hbRef = useRef<number | null>(null);
-  const [online, setOnline] = useState(false);
+  const classId = isObjectParams ? (arg1 as { classId: string }).classId : (arg1 as string | undefined);
+  const studentId = isObjectParams
+    ? (arg1 as { student: PresenceStudent }).student?.id
+    : (arg2 as string | undefined);
+  const username = isObjectParams
+    ? (arg1 as { student: PresenceStudent }).student?.username ?? ''
+    : '';
+  const full_name = isObjectParams
+    ? (arg1 as { student: PresenceStudent }).student?.full_name ?? ''
+    : '';
+  const [online, setOnline] = useState(() =>
+    !!(classId && studentId && isSharedPresenceActive(classId, studentId))
+  );
 
-  const ensureChannel = useCallback(() => {
-    if (!classId || !studentId) return null;
-    if (chanRef.current) return chanRef.current;
-    const channel = supabase.channel(`class_${classId}_presence`, {
-      config: {
-        presence: { key: studentId },
-        broadcast: { self: true }
-      }
-    });
-    chanRef.current = channel;
-    // Student: subscribe and call .track() only — NO presence event listeners (sync, join, leave)
-    return channel;
-  }, [classId, studentId]);
+  useEffect(() => {
+    if (!isObjectParams || !classId || !studentId) return;
+    const listener = (v: boolean) => setOnline(v);
+    shared.listeners.add(listener);
+    if (isSharedPresenceActive(classId, studentId)) setOnline(true);
+    return () => {
+      shared.listeners.delete(listener);
+    };
+  }, [isObjectParams, classId, studentId]);
 
   const startPresence = useCallback(() => {
-    const channel = ensureChannel();
-    if (!channel) return;
-    channel.subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        const now = new Date().toISOString();
-        const presenceData = {
-          student_id: studentId,
-          username: username ?? '',
-          full_name: full_name ?? '',
-          online_at: now,
-          last_heartbeat: now
-        };
-        try {
-          await channel.track(presenceData);
-          setOnline(true);
-        } catch (e) {
-          console.error('[Student] presence track error:', e);
-        }
-      }
-    });
-    if (hbRef.current) window.clearInterval(hbRef.current);
-    hbRef.current = window.setInterval(async () => {
-      const now = new Date().toISOString();
-      const presenceData = {
-        student_id: studentId,
-        username: username ?? '',
-        full_name: full_name ?? '',
-        online_at: now,
-        last_heartbeat: now
-      };
-      try {
-        await channel.track(presenceData);
-        setOnline(true);
-      } catch (e) {
-        console.error('[Student] presence heartbeat error:', e);
-      }
-    }, 60 * 1000); // 60 second heartbeat
-  }, [ensureChannel, studentId, username, full_name]);
+    if (!classId || !studentId) return;
+    void startSharedPresence(classId, studentId, username, full_name);
+  }, [classId, studentId, username, full_name]);
 
   const stopPresence = useCallback(() => {
-    if (hbRef.current) { window.clearInterval(hbRef.current); hbRef.current = null; }
-    try { chanRef.current?.untrack(); } catch {}
-    try { chanRef.current?.unsubscribe(); } catch {}
-    chanRef.current = null;
+    stopStudentPresenceSession();
     setOnline(false);
   }, []);
 
   useEffect(() => {
     if (!isObjectParams && classId && studentId) {
-      startPresence();
-      return () => stopPresence();
+      void startSharedPresence(classId, studentId, '', '');
+      return () => stopStudentPresenceSession();
     }
-  }, [isObjectParams, classId, studentId, startPresence, stopPresence]);
+  }, [isObjectParams, classId, studentId]);
 
   if (isObjectParams) {
-    return useMemo(() => ({ isOnline: online, startPresence, stopPresence }), [online, startPresence, stopPresence]) as any;
+    return useMemo(
+      () => ({ isOnline: online, startPresence, stopPresence }),
+      [online, startPresence, stopPresence]
+    ) as { isOnline: boolean; startPresence: () => void; stopPresence: () => void };
   }
 }

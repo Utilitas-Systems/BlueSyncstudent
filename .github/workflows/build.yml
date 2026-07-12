@@ -43,7 +43,7 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: 'BlueSync Student v${{ steps.version.outputs.version }} (build ${{ github.run_number }})'
-          body: 'See the assets below to download. Choose Mac (Apple Silicon or Intel) or Windows.'
+          body: 'macOS builds only (Apple Silicon + Intel). Download the .dmg for your Mac.'
           draft: false
           prerelease: false
 
@@ -61,9 +61,6 @@ jobs:
           - platform: macos-latest
             rustTarget: x86_64-apple-darwin
             tauriArgs: --target x86_64-apple-darwin --bundles app,dmg
-          - platform: windows-latest
-            rustTarget: x86_64-pc-windows-msvc
-            tauriArgs: --bundles nsis
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -165,7 +162,7 @@ jobs:
           projectPath: nexus-class-sync-main
           args: ${{ matrix.tauriArgs }}
           releaseId: ${{ needs.prepare.outputs.releaseId }}
-          releaseBody: 'See the assets below to download. Choose Mac (Apple Silicon or Intel) or Windows.'
+          releaseBody: 'macOS builds only (Apple Silicon + Intel). Download the .dmg for your Mac.'
           includeUpdaterJson: ${{ steps.configure_updater.outputs.has_signing_key == 'true' }}
           updaterJsonPreferNsis: ${{ steps.configure_updater.outputs.has_signing_key == 'true' }}
 

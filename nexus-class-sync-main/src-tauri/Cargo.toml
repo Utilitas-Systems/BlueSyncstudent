@@ -1,6 +1,6 @@
 [package]
 name = "nexus-class-sync"
-version = "1.1.6"
+version = "1.1.25"
 description = "BlueSync Student — connect to your classroom network and share devices securely"
   authors = ["BlueSync"]
 license = ""
@@ -18,8 +18,10 @@ tauri-plugin-shell = "2.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-opener = "2"
-tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # 1.5.4+ passes Swift --triple from CARGO_CFG_TARGET_ARCH so x86_64-apple-darwin builds on arm64 CI work.
@@ -38,6 +40,10 @@ windows = { version = "0.61.3", features = [
     "Win32_Media_Audio_Endpoints",
     "Win32_System_Com"
 ] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
 
 [features]
 # This feature is used for production builds or when `devPath` points to the filesystem

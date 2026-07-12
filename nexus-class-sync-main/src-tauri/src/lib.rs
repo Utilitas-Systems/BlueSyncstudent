@@ -1,3 +1,9 @@
+#[cfg(target_os = "android")]
+mod android_audio;
+#[cfg(target_os = "android")]
+mod android_bluetooth;
+#[cfg(target_os = "android")]
+mod android_foreground;
 #[cfg(target_os = "macos")]
 mod macos_audio;
 #[cfg(target_os = "macos")]
@@ -5,25 +11,34 @@ mod macos_bluetooth;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_shell::init());
+
+    // Play Store / Managed Play owns Android updates — do not register desktop updater.
+    #[cfg(not(target_os = "android"))]
+    {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+
+    builder
         .invoke_handler(tauri::generate_handler![
             get_current_bluetooth_devices,
             get_current_bluetooth_devices_detailed,
             get_bluetooth_devices,
             get_system_audio_peak,
             check_audio_playback,
-            get_system_audio_peak_detailed
+            get_system_audio_peak_detailed,
+            start_session_monitoring,
+            stop_session_monitoring
         ])
-        .plugin(tauri_plugin_shell::init())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 
 #[derive(serde::Serialize)]
-struct DetailedBluetoothDevice {
+pub(crate) struct DetailedBluetoothDevice {
     device_mac_address: String,
     device_name: String,
     connection_status: String,
@@ -175,6 +190,11 @@ fn get_current_bluetooth_devices() -> Result<Vec<String>, String> {
         return macos_bluetooth::connected_device_names();
     }
 
+    #[cfg(target_os = "android")]
+    {
+        return android_bluetooth::connected_device_names();
+    }
+
     #[allow(unreachable_code)]
     Err("Bluetooth query not supported on this OS".into())
 }
@@ -260,6 +280,11 @@ fn get_current_bluetooth_devices_detailed() -> Result<Vec<DetailedBluetoothDevic
         return macos_bluetooth::connected_devices_detailed();
     }
 
+    #[cfg(target_os = "android")]
+    {
+        return android_bluetooth::connected_devices_detailed();
+    }
+
     #[allow(unreachable_code)]
     Err("Bluetooth query not supported on this OS".into())
 }
@@ -272,6 +297,7 @@ fn get_bluetooth_devices() -> Result<Vec<String>, String> {
 
 // Windows: WASAPI default render peak 0.0–1.0 (master volume/mute).
 // macOS: ScreenCaptureKit system-audio buffers only (not microphone)—see `macos_audio`.
+// Android: AudioPlaybackCapture peak — see `android_audio` (MediaProjection consent).
 #[tauri::command]
 fn get_system_audio_peak() -> Result<f32, String> {
     #[cfg(target_os = "windows")]
@@ -328,7 +354,11 @@ fn get_system_audio_peak() -> Result<f32, String> {
     {
         macos_audio::system_audio_peak()
     }
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    #[cfg(target_os = "android")]
+    {
+        android_audio::system_audio_peak()
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "android")))]
     {
         Ok(0.0)
     }
@@ -348,10 +378,13 @@ struct SystemAudioPeakDetails {
     peak: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     macos_meter_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    android_meter_error: Option<String>,
     is_macos: bool,
+    is_android: bool,
 }
 
-/// Peak plus macOS ScreenCaptureKit error (for in-app setup help). Non-mac: `is_macos` false, error none.
+/// Peak plus platform meter errors (for in-app setup help).
 #[tauri::command]
 fn get_system_audio_peak_detailed() -> SystemAudioPeakDetails {
     let peak = get_system_audio_peak().unwrap_or(0.0);
@@ -360,15 +393,55 @@ fn get_system_audio_peak_detailed() -> SystemAudioPeakDetails {
         SystemAudioPeakDetails {
             peak,
             macos_meter_error: macos_audio::macos_meter_error_snapshot(),
+            android_meter_error: None,
             is_macos: true,
+            is_android: false,
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "android")]
     {
         SystemAudioPeakDetails {
             peak,
             macos_meter_error: None,
+            android_meter_error: android_audio::android_meter_error_snapshot(),
             is_macos: false,
+            is_android: true,
         }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "android")))]
+    {
+        SystemAudioPeakDetails {
+            peak,
+            macos_meter_error: None,
+            android_meter_error: None,
+            is_macos: false,
+            is_android: false,
+        }
+    }
+}
+
+/// Android: start foreground service while student is online. No-op on desktop.
+#[tauri::command]
+fn start_session_monitoring() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        return android_foreground::start_session_monitoring();
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(())
+    }
+}
+
+/// Android: stop foreground service on logout / leave class. No-op on desktop.
+#[tauri::command]
+fn stop_session_monitoring() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        return android_foreground::stop_session_monitoring();
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(())
     }
 }

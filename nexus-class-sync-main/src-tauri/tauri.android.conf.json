@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "android": {
+      "minSdkVersion": 29,
+      "autoIncrementVersionCode": true
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": false
+    }
+  }
+}

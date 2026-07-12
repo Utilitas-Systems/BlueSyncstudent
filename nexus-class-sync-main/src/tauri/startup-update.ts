@@ -1,25 +1,20 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { toast } from "@/components/ui/sonner";
-import { APP_DISPLAY_NAME, UPDATE_FAILED_WEBSITE_MESSAGE } from "@/lib/appVersion";
-
-function isTauri(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !==
-      "undefined"
-  );
-}
+import { formatUpdateError } from "@/lib/appVersion";
+import { usesDesktopUpdater } from "@/lib/platform";
+import { installUpdateWithOverlay } from "@/tauri/update-flow";
 
 const STARTUP_DELAY_MS = 4_000;
 const POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 /**
- * Runs after the root is rendered so Sonner is mounted.
- * Silent when not in Tauri, offline, or no compatible update.
+ * Runs after the root is rendered so Sonner and the UpdateOverlay are mounted.
+ * Silent when not in Tauri, on Android (Play Store updates), offline, or no
+ * compatible update. When an update is found, the full-screen UpdateOverlay
+ * takes over until the app relaunches.
  */
 export function attachUpdaterLifecycle(): void {
-  if (!isTauri()) return;
+  if (!usesDesktopUpdater()) return;
 
   let busy = false;
 
@@ -36,24 +31,20 @@ export function attachUpdaterLifecycle(): void {
     if (!pendingUpdate) return;
 
     busy = true;
-    let loadingId: string | number | undefined;
     try {
-      loadingId = toast.loading(`Updating ${APP_DISPLAY_NAME} to v${pendingUpdate.version}ù`);
-      await pendingUpdate.downloadAndInstall();
-      if (loadingId !== undefined) toast.dismiss(loadingId);
-      loadingId = undefined;
-      try {
-        toast.success(`Update installed (v${pendingUpdate.version}). Restartingù`, { duration: 4000 });
-        await relaunch();
-      } catch {
-        toast.success(`Update installed (v${pendingUpdate.version}). Restart the app to finish.`, {
-          duration: 12_000,
-        });
+      const result = await installUpdateWithOverlay(pendingUpdate);
+      if (result === "relaunch-failed") {
+        toast.success(
+          `Update installed (v${pendingUpdate.version}). Restart the app to finish.`,
+          { duration: 12_000 },
+        );
       }
     } catch (error) {
       console.error("Auto-update install failed:", error);
-      if (loadingId !== undefined) toast.dismiss(loadingId);
-      toast.error(UPDATE_FAILED_WEBSITE_MESSAGE, { duration: 10_000 });
+      toast.error("Update failed", {
+        description: formatUpdateError(error),
+        duration: 12_000,
+      });
     } finally {
       try {
         await pendingUpdate.close();

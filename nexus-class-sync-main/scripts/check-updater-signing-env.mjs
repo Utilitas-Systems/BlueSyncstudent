@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { classifySigningKey } from "./minisign-key-probe.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
@@ -22,14 +23,13 @@ if (!wantsUpdaterBundles) {
   process.exit(0);
 }
 
-let raw = (process.env.TAURI_SIGNING_PRIVATE_KEY || "").trim();
-raw = raw.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-if (!raw.includes("\n") && raw.includes("\\n")) raw = raw.replace(/\\n/g, "\n");
+const { looksValid, preview, lineCount, hasSecretMarker, hasPublicMarker } = classifySigningKey(
+  process.env.TAURI_SIGNING_PRIVATE_KEY,
+);
 
-const hasPublicMarker = /minisign public key/i.test(raw);
-const hasSecretMarker =
-  /minisign encrypted secret key/i.test(raw) || /minisign secret key/i.test(raw);
-const looksValid = raw.length >= 60 && hasSecretMarker && !hasPublicMarker;
+console.log(
+  `Signing key probe: length=${(process.env.TAURI_SIGNING_PRIVATE_KEY || "").trim().length} lineCount=${lineCount} secretMarker=${hasSecretMarker} publicMarker=${hasPublicMarker} preview=${JSON.stringify(preview)}`,
+);
 
 const requireFlag = process.argv.includes("--require");
 
@@ -70,6 +70,9 @@ The .pub content must match plugins.updater.pubkey in src-tauri/tauri.conf.json.
 
 GitHub Actions: set repository secrets TAURI_SIGNING_PRIVATE_KEY (full .key file) and,
 if the key is encrypted, TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
+
+The secret must include BOTH lines of the .key file (starts with "untrusted comment:").
+If GitHub stripped newlines, re-paste from Notepad or use a single-line base64 wrap of the whole file.
 `;
 
 console.error(msg.trim());

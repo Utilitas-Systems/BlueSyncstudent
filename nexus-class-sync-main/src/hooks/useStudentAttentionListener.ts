@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { resolveRealtimeChannel } from '@/lib/realtimeChannel';
 
 interface StudentAttentionOptions {
   classId: string | null;
@@ -15,9 +16,9 @@ export interface AttentionAlert {
 }
 
 /**
- * Student subscribes to TWO channels:
- * 1. student_${studentId}_alerts — personal alerts (event: student_alert)
- * 2. class_${classId}_alerts — class-wide alerts (event: all_students_alert)
+ * Student subscribes to signed realtime channels:
+ * 1. student_alerts — personal alerts (event: student_alert)
+ * 2. class_alerts — class-wide alerts (event: all_students_alert)
  */
 export const useStudentAttentionListener = ({
   classId,
@@ -34,6 +35,8 @@ export const useStudentAttentionListener = ({
       return;
     }
 
+    let cancelled = false;
+
     const cleanup = () => {
       if (personalChannelRef.current) {
         supabase.removeChannel(personalChannelRef.current);
@@ -45,53 +48,62 @@ export const useStudentAttentionListener = ({
       }
     };
 
-    // CHANNEL 1: Personal alerts (targeted to this student)
-    const personalChannelName = `student_${studentId}_alerts`;
-    const personalChannel = supabase.channel(personalChannelName);
-    personalChannelRef.current = personalChannel;
-
-    personalChannel.on('broadcast', { event: 'student_alert' }, (payload: any) => {
-      const p = payload.payload || {};
-      const { student_id, message, timestamp, alert_type } = p;
-      callbackRef.current?.({
-        type: 'individual',
-        message: message ?? 'Teacher needs your attention',
-        timestamp: timestamp ?? new Date().toISOString(),
-        alert_type: alert_type ?? 'individual'
-      });
-    });
-
-    personalChannel.subscribe((status) => {
-      if (status === 'CHANNEL_ERROR') {
-        console.error('[attention] Failed to subscribe to personal alerts:', personalChannelName);
+    void (async () => {
+      const personalChannelName = await resolveRealtimeChannel('student_alerts', studentId);
+      if (cancelled || !personalChannelName) {
+        console.error('[attention] Failed to resolve personal alerts channel');
+        return;
       }
-    });
 
-    // CHANNEL 2: Class-wide alerts (sent to all students)
-    if (classId) {
-      const classChannelName = `class_${classId}_alerts`;
-      const classChannel = supabase.channel(classChannelName);
-      classChannelRef.current = classChannel;
+      const personalChannel = supabase.channel(personalChannelName);
+      personalChannelRef.current = personalChannel;
 
-      classChannel.on('broadcast', { event: 'all_students_alert' }, (payload: any) => {
+      personalChannel.on('broadcast', { event: 'student_alert' }, (payload: { payload?: Record<string, unknown> }) => {
         const p = payload.payload || {};
-        const { message, timestamp, alert_type } = p;
         callbackRef.current?.({
-          type: 'all',
-          message: message ?? "Teacher needs everyone's attention",
-          timestamp: timestamp ?? new Date().toISOString(),
-          alert_type: alert_type ?? 'all'
+          type: 'individual',
+          message: (p.message as string) ?? 'Teacher needs your attention',
+          timestamp: (p.timestamp as string) ?? new Date().toISOString(),
+          alert_type: (p.alert_type as string) ?? 'individual'
         });
       });
 
-      classChannel.subscribe((status) => {
+      personalChannel.subscribe((status) => {
         if (status === 'CHANNEL_ERROR') {
-          console.error('[attention] Failed to subscribe to class alerts:', classChannelName);
+          console.error('[attention] Failed to subscribe to personal alerts:', personalChannelName);
         }
       });
-    }
+
+      if (classId) {
+        const classChannelName = await resolveRealtimeChannel('class_alerts', classId);
+        if (cancelled || !classChannelName) {
+          console.error('[attention] Failed to resolve class alerts channel');
+          return;
+        }
+
+        const classChannel = supabase.channel(classChannelName);
+        classChannelRef.current = classChannel;
+
+        classChannel.on('broadcast', { event: 'all_students_alert' }, (payload: { payload?: Record<string, unknown> }) => {
+          const p = payload.payload || {};
+          callbackRef.current?.({
+            type: 'all',
+            message: (p.message as string) ?? "Teacher needs everyone's attention",
+            timestamp: (p.timestamp as string) ?? new Date().toISOString(),
+            alert_type: (p.alert_type as string) ?? 'all'
+          });
+        });
+
+        classChannel.subscribe((status) => {
+          if (status === 'CHANNEL_ERROR') {
+            console.error('[attention] Failed to subscribe to class alerts:', classChannelName);
+          }
+        });
+      }
+    })();
 
     return () => {
+      cancelled = true;
       cleanup();
     };
   }, [classId, studentId]);

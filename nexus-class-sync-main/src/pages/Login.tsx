@@ -8,15 +8,24 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { toast as sonnerToast } from "@/components/ui/sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { loginStudent, storeLoginCreds } from "@/lib/studentLogin";
+import { persistStudentClass } from "@/lib/studentClass";
+import { formatRpcError } from "@/lib/rpcError";
+import { setSessionToken } from "@/lib/studentSession";
 import {
   APP_DISPLAY_NAME,
   APP_VERSION,
   APP_VERSION_LABEL,
-  UPDATE_FAILED_WEBSITE_MESSAGE,
+  formatUpdateError,
 } from "@/lib/appVersion";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { isAndroid, usesDesktopUpdater } from "@/lib/platform";
+import { installUpdateWithOverlay } from "@/tauri/update-flow";
+
+/** Managed Play listing — replace when the public package ID is live. */
+const PLAY_STORE_URL =
+  "https://play.google.com/store/apps/details?id=com.monere.studentportal";
 
 const openExternalUrl = (url: string) => {
   openUrl(url).catch(() => {
@@ -37,15 +46,16 @@ const Login = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const isTauri = typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
+  const showDesktopUpdater = usesDesktopUpdater();
+  const onAndroid = isAndroid();
 
   // Load saved credentials on component mount
   useEffect(() => {
     const savedCredentials = localStorage.getItem('nexus_student_credentials');
     if (savedCredentials) {
-      const { username: savedUsername, schoolCode: savedSchoolCode, password: savedPassword } = JSON.parse(savedCredentials);
+      const { username: savedUsername, schoolCode: savedClassCode, password: savedPassword } = JSON.parse(savedCredentials);
       setUsername(savedUsername || "");
-      setSchoolCode(savedSchoolCode || "");
+      setSchoolCode(savedClassCode || "");
       setPassword(savedPassword || "");
       setSaveCredentials(true);
     }
@@ -57,46 +67,55 @@ const Login = () => {
 
     try {
       // Save credentials if checkbox is checked
+      const enteredCode = schoolCode.toUpperCase();
+
       if (saveCredentials) {
         localStorage.setItem('nexus_student_credentials', JSON.stringify({
           username: username.toUpperCase(),
-          schoolCode: schoolCode.toUpperCase(),
+          schoolCode: enteredCode,
           password: password
         }));
       } else {
         localStorage.removeItem('nexus_student_credentials');
       }
 
-      // Use the secure authentication function that handles hashed passwords
-      const { data: authResult, error: authError } = await supabase
-        .rpc('authenticate_school_user_secure' as any, {
-          p_school_code: schoolCode.toUpperCase(),
-          p_username: username.toUpperCase(),
-          p_password: password,
-          p_user_type: 'student'
-        });
+      const login = await loginStudent({
+        classCode: enteredCode,
+        username: username.toUpperCase(),
+        password,
+      });
 
-      if (authError || !authResult || (Array.isArray(authResult) && authResult.length === 0)) {
+      if (login.error || !login.data) {
         toast({
-          title: "Login Failed",
-          description: "Invalid credentials or school code.",
+          title: login.requiresPasswordSetup ? "Password required" : "Login Failed",
+          description: login.error ?? "Invalid credentials or school code.",
           variant: "destructive",
         });
         setIsLoading(false);
         return;
       }
 
-      const user = Array.isArray(authResult) ? authResult[0] : authResult;
+      const { user, sessionToken, classFromLogin } = login.data;
+      setSessionToken(sessionToken);
+      storeLoginCreds(user.username, password);
 
-      // Get school information using the secure function
+      let school: Record<string, unknown> | null = null;
       const { data: schoolResult, error: schoolError } = await supabase
-        .rpc('get_school_by_code' as any, {
-          p_school_code: schoolCode.toUpperCase()
-        });
-
-      if (schoolError || !schoolResult || (Array.isArray(schoolResult) && schoolResult.length === 0)) {
+        .rpc('get_school_by_code' as never, { p_school_code: enteredCode } as never);
+      if (!schoolError && schoolResult) {
+        school = Array.isArray(schoolResult) ? schoolResult[0] : schoolResult;
+      }
+      if (!school && user.school_id) {
+        school = {
+          id: user.school_id,
+          school_name: 'Your School',
+          school_code: enteredCode,
+          is_active: true,
+        };
+      }
+      if (!school) {
         toast({
-          title: "Login Failed", 
+          title: "Login Failed",
           description: "School not found or inactive.",
           variant: "destructive",
         });
@@ -104,42 +123,27 @@ const Login = () => {
         return;
       }
 
-      const school = Array.isArray(schoolResult) ? schoolResult[0] : schoolResult;
-
-      // Log the login
-      await supabase.from('login_logs').insert({
-        user_id: user.user_id,
-        username: user.username,
-        login_type: 'student',
-        school_id: user.school_id,
-        ip_address: 'demo'
-      });
-
-      // Ensure student record exists (starts as offline - will be set online by Dashboard)
-      const { error: ensureError } = await supabase.rpc('ensure_student_record', {
+      // Ensure student record exists (starts offline until Dashboard sets status via RPC)
+      let { error: ensureError } = await supabase.rpc('ensure_student_record' as never, {
         p_user_id: user.user_id,
         p_username: user.username,
         p_full_name: user.full_name,
-        p_school_id: user.school_id
-      });
+        p_school_id: user.school_id,
+        p_session_token: sessionToken,
+      } as never);
+
+      if (ensureError) {
+        const fallback = await supabase.rpc('ensure_student_record' as never, {
+          p_user_id: user.user_id,
+          p_username: user.username,
+          p_full_name: user.full_name,
+          p_school_id: user.school_id,
+        } as never);
+        ensureError = fallback.error;
+      }
 
       if (ensureError) {
         console.error('Error ensuring student record:', ensureError);
-      }
-
-      // Explicitly set student as offline until they reach the Dashboard
-      await supabase
-        .from('students')
-        .update({ is_online: false, last_seen: new Date().toISOString() })
-        .eq('id', user.user_id);
-
-      // Set the current user session for RLS policies
-      const { error: setUserError } = await supabase.rpc('set_current_user' as any, {
-        user_uuid: user.user_id
-      });
-
-      if (setUserError) {
-        console.error('Error setting current user:', setUserError);
       }
 
       // Store user info in session storage
@@ -152,16 +156,20 @@ const Login = () => {
       }));
       sessionStorage.setItem('student_school', JSON.stringify(school));
 
+      if (classFromLogin) {
+        persistStudentClass(classFromLogin);
+      }
+
       toast({
         title: "Welcome!",
-        description: `Logged in successfully to ${school.school_name}`,
+        description: `Logged in successfully to ${(school as { school_name?: string }).school_name ?? 'your school'}`,
       });
 
       navigate('/dashboard');
     } catch (error) {
       toast({
         title: "Error",
-        description: "An unexpected error occurred.",
+        description: formatRpcError(error, "An unexpected error occurred."),
         variant: "destructive",
       });
     } finally {
@@ -170,7 +178,7 @@ const Login = () => {
   };
 
   const handleManualCheckForUpdates = async () => {
-    if (!isTauri || checkingUpdate) return;
+    if (!showDesktopUpdater || checkingUpdate) return;
     const now = Date.now();
     if (now - lastManualUpdateAtRef.current < MANUAL_UPDATE_COOLDOWN_MS) {
       sonnerToast.message("Please wait a moment before checking again.");
@@ -195,24 +203,19 @@ const Login = () => {
       return;
     }
 
-    let loadingId: string | number | undefined;
     try {
-      loadingId = sonnerToast.loading(`Updating to v${pending.version}…`);
-      await pending.downloadAndInstall();
-      if (loadingId !== undefined) sonnerToast.dismiss(loadingId);
-      loadingId = undefined;
-      try {
-        sonnerToast.success(`Update installed (v${pending.version}). Restarting…`, { duration: 4000 });
-        await relaunch();
-      } catch {
+      const result = await installUpdateWithOverlay(pending);
+      if (result === "relaunch-failed") {
         sonnerToast.success(`Update installed (v${pending.version}). Restart the app to finish.`, {
           duration: 12_000,
         });
       }
     } catch (error) {
       console.error("[Login] Update install failed:", error);
-      if (loadingId !== undefined) sonnerToast.dismiss(loadingId);
-      sonnerToast.error(UPDATE_FAILED_WEBSITE_MESSAGE, { duration: 10_000 });
+      sonnerToast.error("Update failed", {
+        description: formatUpdateError(error),
+        duration: 12_000,
+      });
     } finally {
       try {
         await pending.close();
@@ -229,7 +232,7 @@ const Login = () => {
         className="fixed bottom-4 left-4 z-10 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-muted-foreground tabular-nums select-none max-w-[min(100vw-2rem,20rem)]"
       >
         <span aria-label={`App version ${APP_VERSION}`}>{APP_VERSION_LABEL}</span>
-        {isTauri ? (
+        {showDesktopUpdater ? (
           <button
             type="button"
             onClick={() => void handleManualCheckForUpdates()}
@@ -238,6 +241,16 @@ const Login = () => {
             aria-label="Check for app updates"
           >
             {checkingUpdate ? "Checking…" : "Update"}
+          </button>
+        ) : null}
+        {onAndroid ? (
+          <button
+            type="button"
+            onClick={() => openExternalUrl(PLAY_STORE_URL)}
+            className="p-0 m-0 text-[10px] font-normal text-muted-foreground/35 hover:text-muted-foreground/80 underline-offset-2 hover:underline bg-transparent border-none cursor-pointer"
+            aria-label="Open in Play Store"
+          >
+            Play Store
           </button>
         ) : null}
       </div>

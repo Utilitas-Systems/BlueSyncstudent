@@ -522,6 +522,33 @@ export type Database = {
           username: string
         }[]
       }
+      login_school_user: {
+        Args: {
+          p_password: string
+          p_school_code: string
+          p_user_type: string
+          p_username: string
+        }
+        Returns: {
+          full_name: string
+          school_id: string
+          session_token: string
+          user_id: string
+          user_type: string
+          username: string
+        }[]
+      }
+      login_student: {
+        Args: { p_class_code: string; p_password: string; p_username: string }
+        Returns: {
+          full_name: string
+          school_id: string
+          session_token: string
+          user_id: string
+          user_type: string
+          username: string
+        }[]
+      }
       authenticate_school_user_secure: {
         Args: {
           p_password: string
@@ -532,6 +559,7 @@ export type Database = {
         Returns: {
           full_name: string
           school_id: string
+          session_token: string
           user_id: string
           user_type: string
           username: string
@@ -990,8 +1018,12 @@ export type Database = {
         Args: { p_class_code: string }
         Returns: { id: string; class_code: string; class_name: string } | null
       }
+      join_class_by_code_v2: {
+        Args: { p_session_token: string; p_class_code: string }
+        Returns: { id: string; class_code: string; class_name: string } | null
+      }
       get_student_classes: {
-        Args: { p_student_id?: string | null }
+        Args: { p_session_token?: string; p_student_id?: string | null }
         Returns: { id: string; class_code: string; class_name: string; created_at?: string; teacher_id?: string }[]
       }
       leave_class: {
@@ -1074,9 +1106,29 @@ export type Database = {
         Args: { p_audio_level: number; p_student_id: string }
         Returns: undefined
       }
+      update_student_audio_level_v2: {
+        Args: { p_audio_level: number; p_session_token: string }
+        Returns: undefined
+      }
       update_student_status: {
         Args: { p_is_online?: boolean; p_student_id: string }
         Returns: undefined
+      }
+      update_student_status_v2: {
+        Args: { p_is_online?: boolean; p_session_token: string }
+        Returns: undefined
+      }
+      student_leave_class_v2: {
+        Args: { p_class_id: string; p_session_token: string }
+        Returns: undefined
+      }
+      get_realtime_channel_key: {
+        Args: {
+          p_kind: string
+          p_session_token: string
+          p_target_id: string
+        }
+        Returns: string
       }
       upsert_student_devices: {
         Args: { p_devices: string[]; p_student_id: string }

@@ -14,8 +14,15 @@ dist-ssr
 
 # Tauri updater — never commit minisign private keys
 bluesync-signing.key
+bluesync-signing.key.backup-*
+bluesync-signing.key.pub.backup-*
 *-signing.key
+*-signing.key.old
 *.minisign.key
+
+# Windows code-signing PFX / merge configs (never commit)
+*.pfx
+src-tauri/tauri.bundle.signing.json
 
 # Tauri
 src-tauri/target
