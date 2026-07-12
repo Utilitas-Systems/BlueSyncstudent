@@ -91,23 +91,21 @@ jobs:
         env:
           KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          node <<'NODE'
-          const fs = require('fs');
-          let raw = process.env.KEY ? String(process.env.KEY).trim() : '';
-          raw = raw.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-          if (!raw.includes('\n') && raw.includes('\\n')) raw = raw.replace(/\\n/g, '\n');
-          const hasPublicMarker = /minisign public key/i.test(raw);
-          const hasSecretMarker =
-            /minisign encrypted secret key/i.test(raw) ||
-            /minisign secret key/i.test(raw);
-          const looksValidPrivateKey = raw.length >= 60 && hasSecretMarker && !hasPublicMarker;
-          console.log(`::notice::Signing key probe: length=${raw.length} secretMarker=${hasSecretMarker} publicMarker=${hasPublicMarker}`);
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { classifySigningKey } from './scripts/minisign-key-probe.mjs';
+
+          const key = classifySigningKey(process.env.KEY);
+          console.log(
+            `::notice::Signing key probe: length=${key.raw.length} lineCount=${key.lineCount} looksValid=${key.looksValid} publicMarker=${key.hasPublicMarker} preview=${JSON.stringify(key.preview)}`,
+          );
           const p = 'src-tauri/tauri.conf.json';
           const j = JSON.parse(fs.readFileSync(p, 'utf8'));
-          if (!looksValidPrivateKey) {
-            if (raw.length > 0) {
-              if (hasPublicMarker) {
-                console.log('::warning::TAURI_SIGNING_PRIVATE_KEY looks like a PUBLIC key. Use the secret key from `tauri signer generate`, not the .pub file. Building without signed updater artifacts.');
+          if (!key.looksValid) {
+            if (key.raw.length > 0) {
+              if (key.hasPublicMarker) {
+                console.log('::warning::TAURI_SIGNING_PRIVATE_KEY looks like a PUBLIC key. Use bluesync-signing.key, not .pub. Building without signed updater artifacts.');
               } else {
                 console.log('::warning::TAURI_SIGNING_PRIVATE_KEY is not a valid minisign secret key. Building without signed updater artifacts.');
               }
@@ -119,8 +117,18 @@ jobs:
             fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
           } else {
             console.log('Valid minisign private key detected; updater artifacts will be generated.');
+            // Materialize key file Tauri expects (decode single-line base64 wraps).
+            let material = key.raw;
+            const one = material.replace(/\s/g, '');
+            if (!material.includes('\n') && /^[A-Za-z0-9+/]+=*$/.test(one) && one.length >= 120) {
+              try {
+                const dec = Buffer.from(one, 'base64').toString('utf8');
+                if (/untrusted comment:/i.test(dec) && /secret|encrypted/i.test(dec)) material = dec;
+              } catch { /* keep raw */ }
+            }
+            fs.writeFileSync(path.join(process.cwd(), 'bluesync-signing.key'), material.endsWith('\n') ? material : material + '\n');
           }
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_signing_key=${looksValidPrivateKey ? 'true' : 'false'}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_signing_key=${key.looksValid ? 'true' : 'false'}\n`);
           NODE
 
       - name: Signing detection result
@@ -131,25 +139,27 @@ jobs:
             echo "::warning::Updater archives will NOT be produced — fix TAURI_SIGNING_PRIVATE_KEY (full .key file, not .pub) or see logs above."
           fi
 
-      # Encrypted .key files also need repo secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD (plain text).
+      # Encrypted keys need TAURI_SIGNING_PRIVATE_KEY_PASSWORD. Default project password is "bluesync".
       # Multiline secrets in YAML ${{ }} often break on macOS runners; append to GITHUB_ENV instead.
       - name: Load signing secrets for Tauri (multiline-safe)
         if: steps.configure_updater.outputs.has_signing_key == 'true'
         shell: bash
         env:
-          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           SIGNING_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          DELIM="TAURI_SIGNING_KEY___EOF___"
-          echo "TAURI_SIGNING_PRIVATE_KEY<<$DELIM" >> "$GITHUB_ENV"
-          printf '%s\n' "$SIGNING_KEY" >> "$GITHUB_ENV"
-          echo "$DELIM" >> "$GITHUB_ENV"
-          if [ -n "${SIGNING_PASSWORD+x}" ] && [ -n "$SIGNING_PASSWORD" ]; then
-            DELIM2="TAURI_SIGNING_PW___EOF___"
-            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD<<$DELIM2" >> "$GITHUB_ENV"
-            printf '%s\n' "$SIGNING_PASSWORD" >> "$GITHUB_ENV"
-            echo "$DELIM2" >> "$GITHUB_ENV"
+          # Prefer materialized key file from configure step; fall back to secret.
+          if [ -f bluesync-signing.key ]; then
+            DELIM="TAURI_SIGNING_KEY___EOF___"
+            echo "TAURI_SIGNING_PRIVATE_KEY<<$DELIM" >> "$GITHUB_ENV"
+            cat bluesync-signing.key >> "$GITHUB_ENV"
+            echo "$DELIM" >> "$GITHUB_ENV"
           fi
+          # Password: repo secret if set, else project default "bluesync"
+          PW="${SIGNING_PASSWORD:-bluesync}"
+          DELIM2="TAURI_SIGNING_PW___EOF___"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD<<$DELIM2" >> "$GITHUB_ENV"
+          printf '%s\n' "$PW" >> "$GITHUB_ENV"
+          echo "$DELIM2" >> "$GITHUB_ENV"
 
       - name: Build and Publish Tauri
         uses: tauri-apps/tauri-action@action-v0.6.2
