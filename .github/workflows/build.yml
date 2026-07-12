@@ -93,7 +93,6 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
-          import path from 'node:path';
           import { classifySigningKey } from './scripts/minisign-key-probe.mjs';
 
           const key = classifySigningKey(process.env.KEY);
@@ -117,16 +116,9 @@ jobs:
             fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
           } else {
             console.log('Valid minisign private key detected; updater artifacts will be generated.');
-            // Materialize key file Tauri expects (decode single-line base64 wraps).
-            let material = key.raw;
-            const one = material.replace(/\s/g, '');
-            if (!material.includes('\n') && /^[A-Za-z0-9+/]+=*$/.test(one) && one.length >= 120) {
-              try {
-                const dec = Buffer.from(one, 'base64').toString('utf8');
-                if (/untrusted comment:/i.test(dec) && /secret|encrypted/i.test(dec)) material = dec;
-              } catch { /* keep raw */ }
-            }
-            fs.writeFileSync(path.join(process.cwd(), 'bluesync-signing.key'), material.endsWith('\n') ? material : material + '\n');
+            // Keep secret bytes as pasted. Local key is a single-line base64 wrap of the
+            // rsign file; Tauri accepts that form. Decoding it before signing breaks CI.
+            fs.writeFileSync('bluesync-signing.key', key.raw.endsWith('\n') ? key.raw : key.raw + '\n');
           }
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_signing_key=${key.looksValid ? 'true' : 'false'}\n`);
           NODE
@@ -147,19 +139,29 @@ jobs:
         env:
           SIGNING_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          # Prefer materialized key file from configure step; fall back to secret.
-          if [ -f bluesync-signing.key ]; then
-            DELIM="TAURI_SIGNING_KEY___EOF___"
-            echo "TAURI_SIGNING_PRIVATE_KEY<<$DELIM" >> "$GITHUB_ENV"
-            cat bluesync-signing.key >> "$GITHUB_ENV"
-            echo "$DELIM" >> "$GITHUB_ENV"
-          fi
+          # Pass key file contents as-is (same format as local bluesync-signing.key).
+          DELIM="TAURI_SIGNING_KEY___EOF___"
+          echo "TAURI_SIGNING_PRIVATE_KEY<<$DELIM" >> "$GITHUB_ENV"
+          cat bluesync-signing.key >> "$GITHUB_ENV"
+          echo "$DELIM" >> "$GITHUB_ENV"
           # Password: repo secret if set, else project default "bluesync"
           PW="${SIGNING_PASSWORD:-bluesync}"
           DELIM2="TAURI_SIGNING_PW___EOF___"
           echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD<<$DELIM2" >> "$GITHUB_ENV"
           printf '%s\n' "$PW" >> "$GITHUB_ENV"
           echo "$DELIM2" >> "$GITHUB_ENV"
+
+      # Fail fast if password/key cannot unlock (avoids a long Rust compile then cryptic sign error).
+      - name: Verify signing key unlocks
+        if: steps.configure_updater.outputs.has_signing_key == 'true'
+        shell: bash
+        run: |
+          echo 'ci-sign-probe' > /tmp/ci-sign-probe.txt
+          npx tauri signer sign /tmp/ci-sign-probe.txt \
+            -f bluesync-signing.key \
+            -p "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}"
+          test -f /tmp/ci-sign-probe.txt.sig
+          echo "Signing key unlock OK"
 
       - name: Build and Publish Tauri
         uses: tauri-apps/tauri-action@action-v0.6.2
